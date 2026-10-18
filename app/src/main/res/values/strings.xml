@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FocusGuard</string>
+    <string name="accessibility_service_description">Intercepta a abertura de redes sociais selecionadas para inserir uma pausa consciente e controlar sessões de uso sem consumir memória em segundo plano.</string>
+</resources>
