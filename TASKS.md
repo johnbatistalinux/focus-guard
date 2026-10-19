@@ -49,3 +49,9 @@
 - [x] Task 8.1: [Bugfix] Prevent floating session pill from pausing or disappearing when opening default Samsung Keyboard and Smart Suggestions (`com.samsung.android.smartsuggestions`, `scs`, `icecone`, `neatart`, `sdk.handwriting`, `stickercenter`, `aremoji`, `intelligence`, `aicore`)
 - [x] Task 8.2: [A11y] Intercept transient system packages and window classes directly in `FocusAccessibilityService.onAccessibilityEvent` and prepopulate Samsung packages in `refreshImePackageCache`
 - [x] Task 8.3: [Test] Validate Samsung Keyboard and auxiliary services in JVM unit test suite
+
+## Milestone 9: v1.2.3 — Universal Transient & IME Isolation Architecture
+- [x] Task 9.1: [A11y] Enable `canRetrieveWindowContent="true"` in `accessibility_service_config.xml` to allow `getWindows()` detection of active IME windows
+- [x] Task 9.2: [A11y] Add `FLAG_ALT_FOCUSABLE_IM` to floating pill window parameters to prevent IME window manager conflicts
+- [x] Task 9.3: [Architecture] Implement intent-based launcher & launchable user app discrimination (`isTransientPackageOrWindow`), guaranteeing zero false session exits from non-launchable OEM/system/IME services
+- [x] Task 9.4: [Test] Verify suite with Gradle unit tests and assemble release APK

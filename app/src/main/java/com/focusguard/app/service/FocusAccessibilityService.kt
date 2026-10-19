@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -47,7 +48,9 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private var isListeningToAllPackages = false
     private var isScreenReceiverRegistered = false
-    private val cachedImePackages = HashSet<String>(8)
+    private val cachedImePackages = HashSet<String>(16)
+    private val cachedLauncherPackages = HashSet<String>(4)
+    private val cachedAppLaunchableState = HashMap<String, Boolean>(64)
     private var lastImeCacheRefreshMs = 0L
 
     private var currentForegroundPackage: String? = null
@@ -116,11 +119,7 @@ class FocusAccessibilityService : AccessibilityService() {
         }
 
         // Ignora janelas de método de entrada (teclado virtual), sistema ou overlays de acessibilidade
-        if (isTransientWindowEvent(event) ||
-            isSystemInputMethodPackage(pkgName) ||
-            policyEngine.isTransientSystemPackage(pkgName) ||
-            policyEngine.isTransientWindowClassName(clsName)
-        ) {
+        if (isTransientPackageOrWindow(pkgName, clsName, event)) {
             return
         }
 
@@ -273,7 +272,7 @@ class FocusAccessibilityService : AccessibilityService() {
     /**
      * Verifica se a janela que disparou o evento é um teclado virtual (`TYPE_INPUT_METHOD`),
      * painel do sistema (`TYPE_SYSTEM`), overlay (`TYPE_ACCESSIBILITY_OVERLAY`) ou um popup
-     * não-fullscreen exibido enquanto o teclado virtual está aberto na tela.
+     * exibido enquanto o teclado virtual está ativo na tela.
      */
     private fun isTransientWindowEvent(event: AccessibilityEvent): Boolean {
         val windowId = event.windowId
@@ -289,9 +288,73 @@ class FocusAccessibilityService : AccessibilityService() {
             }
         }
 
-        if (!event.isFullScreen && isImeVisibleOnScreen) {
+        // Se o teclado virtual está na tela e o evento não é de um app de rede social alvo,
+        // trata-se de janela transitória gerada pelo ecossistema do IME ou sistema.
+        if (isImeVisibleOnScreen) {
+            val pkg = event.packageName?.toString().orEmpty()
+            if (SocialAppCatalog.findByPackageName(pkg) == null) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun isHomeLauncherPackage(pkgName: String): Boolean {
+        if (pkgName in cachedLauncherPackages) return true
+        runCatching {
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            val resolveInfoList = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            for (resolveInfo in resolveInfoList) {
+                val p = resolveInfo.activityInfo?.packageName
+                if (!p.isNullOrBlank()) {
+                    cachedLauncherPackages.add(p)
+                }
+            }
+        }
+        return pkgName in cachedLauncherPackages
+    }
+
+    private fun isLaunchableUserApp(pkgName: String): Boolean {
+        cachedAppLaunchableState[pkgName]?.let { return it }
+        val isLaunchable = runCatching {
+            packageManager.getLaunchIntentForPackage(pkgName) != null
+        }.getOrDefault(false)
+        cachedAppLaunchableState[pkgName] = isLaunchable
+        return isLaunchable
+    }
+
+    private fun isTransientPackageOrWindow(pkgName: String, clsName: String?, event: AccessibilityEvent): Boolean {
+        // 1. Verificações rápidas: janelas de acessibilidade, classes e IMEs conhecidos
+        if (isTransientWindowEvent(event) ||
+            isSystemInputMethodPackage(pkgName) ||
+            policyEngine.isTransientSystemPackage(pkgName) ||
+            policyEngine.isTransientWindowClassName(clsName)
+        ) {
             return true
         }
+
+        // 2. Se for o Launcher da tela inicial (One UI Home, Pixel Launcher, etc.), é saída real para o Home
+        if (isHomeLauncherPackage(pkgName)) {
+            return false
+        }
+
+        // 3. Se for uma das redes sociais monitoradas pelo FocusGuard, é evento legítimo de app alvo
+        if (SocialAppCatalog.findByPackageName(pkgName) != null) {
+            return false
+        }
+
+        // 4. Se for a tela de configurações do próprio FocusGuard, não é transitório
+        if (pkgName == packageName) {
+            return false
+        }
+
+        // 5. Se durante uma sessão ativa o pacote NÃO for um aplicativo inicializável pelo usuário
+        // (ex: serviços internos de teclado, previsão, painéis flutuantes da OEM sem ícone no launcher),
+        // trata-se de janela transitória sobre o app em primeiro plano.
+        if (policyEngine.shouldListenToAllPackages() && !isLaunchableUserApp(pkgName)) {
+            return true
+        }
+
         return false
     }
 

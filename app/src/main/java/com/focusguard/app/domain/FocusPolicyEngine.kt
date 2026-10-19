@@ -77,6 +77,12 @@ class FocusPolicyEngine(
             lower.contains("aicore") ||
             lower.contains("bixby.service") ||
             lower.contains("bixby.agent") ||
+            lower.contains("voiceinput") ||
+            lower.contains("neatplugin") ||
+            lower.contains("mojitok") ||
+            lower.contains("emoji") ||
+            lower.contains("vision") ||
+            lower == "com.samsung.smt" ||
             lower.contains("inputshare") ||
             lower.contains("swiftkey") ||
             lower.contains("gboard") ||
