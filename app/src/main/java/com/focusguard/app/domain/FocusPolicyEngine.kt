@@ -26,6 +26,7 @@ class FocusPolicyEngine(
 
         data class InActiveSession(
             val app: TargetApp,
+            val sessionEpochDay: Long,
             val initialSessionSeconds: Long,
             val remainingSessionSeconds: Long,
             val isQuickMicroSession: Boolean = false,
@@ -40,49 +41,116 @@ class FocusPolicyEngine(
     }
 
     private var currentState: EngineState = EngineState.Idle
+    private val pausedSessionsByAppId = HashMap<String, EngineState.InActiveSession>(4)
 
     /**
-     * Pacotes de sistema que abrem janelas sobre o app alvo (como teclado virtual, seletor de mídia ou volume)
-     * e NÃO devem cancelar nem pausar a sessão ativa.
+     * Pacotes de sistema que abrem janelas sobre o app alvo (como teclado virtual, autofill, área de transferência,
+     * seletor de mídia ou volume) e NÃO devem cancelar nem pausar a sessão ativa.
      */
     fun isTransientSystemPackage(packageName: String): Boolean {
         val lower = packageName.lowercase()
-        return lower == "com.android.systemui" ||
+        return lower == "android" ||
+            lower == "com.android.systemui" ||
+            lower == "com.google.android.as" ||
+            lower == "com.google.android.ext.services" ||
+            lower == "com.google.android.gms" ||
+            lower == "com.google.android.tts" ||
+            lower == "com.google.android.googlequicksearchbox" ||
+            lower == "com.android.credentialmanager" ||
+            lower == "com.android.captiveportallogin" ||
+            lower == "com.miui.phrase" ||
+            lower == "com.miui.freeform" ||
+            lower == "com.samsung.android.app.cocktailbarservice" ||
             lower.startsWith("com.focusguard.app") ||
             lower.contains("inputmethod") ||
             lower.contains("keyboard") ||
             lower.contains("honeyboard") ||
             lower.contains("swiftkey") ||
             lower.contains("gboard") ||
+            lower.contains("florisboard") ||
+            lower.contains("openboard") ||
+            lower.contains("heliboard") ||
+            lower.contains("typewise") ||
+            lower.contains("fleksy") ||
+            lower.contains("touchpal") ||
+            lower.contains("facemoji") ||
+            lower.contains("kika") ||
+            lower.contains("svoiceime") ||
+            lower.contains("autofill") ||
+            lower.contains("clipboard") ||
+            lower.contains("credentialmanager") ||
+            lower.contains("samsungpass") ||
             lower.contains("permissioncontroller") ||
             lower.contains("packageinstaller") ||
             lower.contains("biometric") ||
-            lower == "com.google.android.gms"
+            lower.contains("securitycenter")
+    }
+
+    /**
+     * Classes de janela transitórias (como SoftInputWindow do teclado, PopupWindow ou Autofill)
+     * que abrem sobre a Activity atual sem representar troca de aplicativo.
+     */
+    fun isTransientWindowClassName(className: String?): Boolean {
+        if (className.isNullOrBlank()) return false
+        val lower = className.lowercase()
+        return lower.contains("softinputwindow") ||
+            lower.contains("inputmethod") ||
+            lower.contains("popupwindow") ||
+            lower.contains("popupdecorview") ||
+            lower.contains("autofill") ||
+            lower.contains("magnifier") ||
+            lower.contains("toast") ||
+            lower.contains("floatingtoolbar")
     }
 
     /**
      * Processa a mudança de janela em primeiro plano reportada pelo AccessibilityService.
      */
-    fun onWindowPackageChanged(packageName: String): InterventionAction {
-        if (packageName.isBlank() || isTransientSystemPackage(packageName)) {
+    fun onWindowPackageChanged(packageName: String, className: String? = null): InterventionAction {
+        if (packageName.isBlank()) {
+            return InterventionAction.NoOp
+        }
+
+        val isFocusGuardMainActivity = packageName.lowercase().startsWith("com.focusguard.app") &&
+            className?.endsWith(".MainActivity") == true
+
+        if (!isFocusGuardMainActivity &&
+            (isTransientSystemPackage(packageName) || isTransientWindowClassName(className))
+        ) {
             return InterventionAction.NoOp
         }
 
         val config = store.getConfig()
         val targetApp = catalog.findByPackageName(packageName)
 
-        // Se o usuário foi para o Launcher ou outro app não monitorado (ex: WhatsApp)
+        // Se o usuário foi para o Launcher ou outro app não monitorado (ex: WhatsApp ou MainActivity)
         if (targetApp == null || targetApp.id !in config.enabledAppIds) {
             return handleExitToNonMonitoredApp()
         }
 
         val nowMs = timeProvider.elapsedRealtimeMs()
         val today = timeProvider.currentEpochDay()
+
+        // Se havia outra rede social com sessão ativa em primeiro plano, pausa-a no mapa por app
+        val activeState = currentState as? EngineState.InActiveSession
+        if (activeState != null && activeState.app.id != targetApp.id) {
+            val pausedOther = if (!activeState.isPausedInBackground) {
+                activeState.copy(isPausedInBackground = true, pausedAtRealtimeMs = nowMs)
+            } else {
+                activeState
+            }
+            pausedSessionsByAppId[activeState.app.id] = pausedOther
+            currentState = EngineState.Idle
+        }
+
+        purgeExpiredBackgroundSessions(nowMs, today, config)
+
         val usage = getSanitizedUsageState(targetApp.id, today, nowMs, config)
 
         // 1. Verifica se a Cota Diária já esgotou
         val remainingDailySeconds = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
         if (remainingDailySeconds <= 0L) {
+            pausedSessionsByAppId.remove(targetApp.id)
             markTodayQuotaExceededInReward(today)
             currentState = EngineState.InHardBlock(targetApp, BlockReason.DAILY_QUOTA_EXCEEDED)
             return InterventionAction.ShowHardBlock(
@@ -95,6 +163,7 @@ class FocusPolicyEngine(
 
         // 2. Verifica se está em período de Cooldown pós-sessão
         if (usage.cooldownUntilRealtimeMs > nowMs) {
+            pausedSessionsByAppId.remove(targetApp.id)
             val remainingCooldownSec = ((usage.cooldownUntilRealtimeMs - nowMs + 999L) / 1000L)
             currentState = EngineState.InHardBlock(targetApp, BlockReason.COOLDOWN_ACTIVE)
             return InterventionAction.ShowHardBlock(
@@ -105,45 +174,40 @@ class FocusPolicyEngine(
             )
         }
 
-        // 3. Verifica se já existe estado ativo para este mesmo app (ou sessão expirada em background)
-        when (val state = currentState) {
-            is EngineState.InActiveSession -> {
-                val awayMs = if (state.isPausedInBackground) (nowMs - state.pausedAtRealtimeMs).coerceAtLeast(0L) else 0L
-                val graceLimitMs = config.sessionDurationSeconds * 1000L
-                if (state.app.id == targetApp.id && awayMs <= graceLimitMs && state.remainingSessionSeconds > 0L) {
-                    val effectiveRemaining = minOf(state.remainingSessionSeconds, remainingDailySeconds)
-                    currentState = state.copy(
-                        remainingSessionSeconds = effectiveRemaining,
-                        isPausedInBackground = false,
-                        pausedAtRealtimeMs = 0L
-                    )
-                    return InterventionAction.ShowFloatingTimer(
-                        appId = targetApp.id,
-                        displayName = targetApp.displayName,
-                        remainingSessionSeconds = effectiveRemaining,
-                        remainingDailyQuotaSeconds = remainingDailySeconds
-                    )
-                } else if (state.remainingSessionSeconds > 0L) {
-                    // O usuário saiu da sessão anterior antes do tempo acabar e não voltou dentro da janela:
-                    // credita os segundos poupados como Saída Consciente!
-                    creditExpiredBackgroundSession(state, today)
-                }
-            }
-            is EngineState.InMindfulPause -> {
-                if (state.app.id == targetApp.id) {
-                    val reward = store.getRewardState(today)
-                    val ready = state.remainingSeconds <= 0
-                    return buildMindfulPauseAction(
-                        app = targetApp,
-                        remainingPauseSeconds = state.remainingSeconds,
-                        readyToStartSession = ready,
-                        remainingDailyQuotaSeconds = remainingDailySeconds,
-                        config = config,
-                        reward = reward
-                    )
-                }
-            }
-            else -> Unit
+        // 3. Verifica se já existe sessão ativa/pausada dentro da janela de tolerância para este app
+        val existingSession = (currentState as? EngineState.InActiveSession)
+            ?.takeIf { it.app.id == targetApp.id }
+            ?: pausedSessionsByAppId[targetApp.id]
+
+        if (existingSession != null && existingSession.remainingSessionSeconds > 0L) {
+            val effectiveRemaining = minOf(existingSession.remainingSessionSeconds, remainingDailySeconds)
+            val resumed = existingSession.copy(
+                remainingSessionSeconds = effectiveRemaining,
+                isPausedInBackground = false,
+                pausedAtRealtimeMs = 0L
+            )
+            pausedSessionsByAppId.remove(targetApp.id)
+            currentState = resumed
+            return InterventionAction.ShowFloatingTimer(
+                appId = targetApp.id,
+                displayName = targetApp.displayName,
+                remainingSessionSeconds = effectiveRemaining,
+                remainingDailyQuotaSeconds = remainingDailySeconds
+            )
+        }
+
+        val currentPause = currentState as? EngineState.InMindfulPause
+        if (currentPause != null && currentPause.app.id == targetApp.id) {
+            val reward = store.getRewardState(today)
+            val ready = currentPause.remainingSeconds <= 0
+            return buildMindfulPauseAction(
+                app = targetApp,
+                remainingPauseSeconds = currentPause.remainingSeconds,
+                readyToStartSession = ready,
+                remainingDailyQuotaSeconds = remainingDailySeconds,
+                config = config,
+                reward = reward
+            )
         }
 
         // 4. Inicia nova Pausa Consciente (com incremento de tentativa do dia e Pausa Progressiva)
@@ -169,15 +233,43 @@ class FocusPolicyEngine(
      */
     fun onScreenTurnedOff(): InterventionAction = handleExitToNonMonitoredApp()
 
+    private fun purgeExpiredBackgroundSessions(
+        nowMs: Long,
+        todayEpochDay: Long,
+        config: FocusConfig
+    ) {
+        val graceLimitMs = config.sessionDurationSeconds * 1000L
+        val active = currentState as? EngineState.InActiveSession
+        if (active != null && active.isPausedInBackground) {
+            pausedSessionsByAppId[active.app.id] = active
+        }
+
+        val iterator = pausedSessionsByAppId.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next().value
+            val awayMs = if (entry.isPausedInBackground) (nowMs - entry.pausedAtRealtimeMs).coerceAtLeast(0L) else 0L
+            if (entry.isPausedInBackground && awayMs > graceLimitMs) {
+                iterator.remove()
+                if ((currentState as? EngineState.InActiveSession)?.app?.id == entry.app.id) {
+                    currentState = EngineState.Idle
+                }
+                if (entry.remainingSessionSeconds > 0L) {
+                    creditExpiredBackgroundSession(entry, todayEpochDay)
+                }
+            }
+        }
+    }
+
     private fun creditExpiredBackgroundSession(state: EngineState.InActiveSession, todayEpochDay: Long) {
         val unusedSeconds = state.remainingSessionSeconds.coerceAtLeast(0L)
         if (unusedSeconds <= 0L) return
         val reward = store.getRewardState(todayEpochDay)
+        val isSameDay = state.sessionEpochDay == todayEpochDay
         store.saveRewardState(
             reward.copy(
-                voluntaryExitsToday = reward.voluntaryExitsToday + 1,
+                voluntaryExitsToday = if (isSameDay) reward.voluntaryExitsToday + 1 else reward.voluntaryExitsToday,
                 totalImpulsesBeaten = reward.totalImpulsesBeaten + 1,
-                reclaimedSecondsToday = reward.reclaimedSecondsToday + unusedSeconds,
+                reclaimedSecondsToday = if (isSameDay) reward.reclaimedSecondsToday + unusedSeconds else reward.reclaimedSecondsToday,
                 totalReclaimedSeconds = reward.totalReclaimedSeconds + unusedSeconds
             )
         )
@@ -202,6 +294,7 @@ class FocusPolicyEngine(
         val remainingDailySeconds = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
 
         if (remainingDailySeconds <= 0L) {
+            pausedSessionsByAppId.remove(state.app.id)
             markTodayQuotaExceededInReward(today)
             currentState = EngineState.InHardBlock(state.app, BlockReason.DAILY_QUOTA_EXCEEDED)
             return InterventionAction.ShowHardBlock(
@@ -221,8 +314,10 @@ class FocusPolicyEngine(
         }
         val sessionSeconds = minOf(requestedSeconds, remainingDailySeconds)
 
+        pausedSessionsByAppId.remove(state.app.id)
         currentState = EngineState.InActiveSession(
             app = state.app,
+            sessionEpochDay = today,
             initialSessionSeconds = sessionSeconds,
             remainingSessionSeconds = sessionSeconds,
             isQuickMicroSession = isQuickMicroSession,
@@ -245,9 +340,12 @@ class FocusPolicyEngine(
         val state = currentState
         if (state is EngineState.InMindfulPause) {
             val config = store.getConfig()
+            val nowMs = timeProvider.elapsedRealtimeMs()
             val today = timeProvider.currentEpochDay()
+            val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
+            val remainingDaily = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
             val reward = store.getRewardState(today)
-            val savedSec = config.sessionDurationSeconds
+            val savedSec = minOf(config.sessionDurationSeconds, remainingDaily).coerceAtLeast(0L)
             store.saveRewardState(
                 reward.copy(
                     abortedToday = reward.abortedToday + 1,
@@ -304,6 +402,7 @@ class FocusPolicyEngine(
         val cooldownUntil = if (discountedCooldownMs > 0L) nowMs + discountedCooldownMs else 0L
         store.saveUsageState(usage.copy(cooldownUntilRealtimeMs = cooldownUntil))
 
+        pausedSessionsByAppId.remove(state.app.id)
         currentState = EngineState.Idle
         return InterventionAction.DismissOverlay
     }
@@ -364,6 +463,7 @@ class FocusPolicyEngine(
                     if (newRemainingDaily <= 0L) {
                         markTodayQuotaExceededInReward(today)
                     }
+                    pausedSessionsByAppId.remove(state.app.id)
                     currentState = EngineState.Idle
                     val reason = if (newRemainingDaily <= 0L) {
                         BlockReason.DAILY_QUOTA_EXCEEDED
@@ -393,6 +493,17 @@ class FocusPolicyEngine(
                     )
                 }
                 val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
+                val remainingDaily = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
+                if (remainingDaily <= 0L) {
+                    markTodayQuotaExceededInReward(today)
+                    currentState = EngineState.InHardBlock(state.app, BlockReason.DAILY_QUOTA_EXCEEDED)
+                    return InterventionAction.ShowHardBlock(
+                        appId = state.app.id,
+                        displayName = state.app.displayName,
+                        reason = BlockReason.DAILY_QUOTA_EXCEEDED,
+                        remainingBlockSeconds = 0L
+                    )
+                }
                 if (usage.cooldownUntilRealtimeMs <= nowMs) {
                     // Cooldown acabou! Transiciona direto para a Pausa Consciente
                     val currentReward = store.getRewardState(today)
@@ -400,7 +511,6 @@ class FocusPolicyEngine(
                     store.saveRewardState(updatedReward)
 
                     val initialPause = computeProgressivePauseSeconds(config, usage.sessionsStartedToday)
-                    val remainingDaily = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
                     currentState = EngineState.InMindfulPause(state.app, initialPause)
                     buildMindfulPauseAction(
                         app = state.app,
@@ -427,7 +537,11 @@ class FocusPolicyEngine(
      * Retorna o resumo consolidado de Reforço Positivo e Consistência para exibição na UI.
      */
     fun getRewardSummary(): FocusRewardSummary {
+        val nowMs = timeProvider.elapsedRealtimeMs()
         val today = timeProvider.currentEpochDay()
+        val config = store.getConfig()
+        purgeExpiredBackgroundSessions(nowMs, today, config)
+
         val reward = store.getRewardState(today)
 
         val masteryPct = if (reward.attemptsToday > 0) {
@@ -474,13 +588,28 @@ class FocusPolicyEngine(
     }
 
     /**
-     * Verifica se a Trava Anti-Sabotagem está ativa (algum app habilitado está em Cooldown
-     * ou com a Cota Diária estourada). Impede que o usuário desative o bloqueio por impulso.
+     * Verifica se a Trava Anti-Sabotagem está ativa (algum app habilitado está com sessão em andamento,
+     * em Cooldown ou com a Cota Diária estourada). Impede que o usuário desative o bloqueio por impulso.
      */
     fun getSettingsLockStatus(): SettingsLockStatus {
         val config = store.getConfig()
         val nowMs = timeProvider.elapsedRealtimeMs()
         val today = timeProvider.currentEpochDay()
+
+        purgeExpiredBackgroundSessions(nowMs, today, config)
+
+        val activeOrPaused = (currentState as? EngineState.InActiveSession)
+            ?.takeIf { it.app.id in config.enabledAppIds && it.remainingSessionSeconds > 0L }
+            ?: pausedSessionsByAppId.values.firstOrNull {
+                it.app.id in config.enabledAppIds && it.remainingSessionSeconds > 0L
+            }
+
+        if (activeOrPaused != null) {
+            return SettingsLockStatus(
+                isLocked = true,
+                reasonMessage = "Configurações travadas: há uma sessão do ${activeOrPaused.app.displayName} em andamento."
+            )
+        }
 
         for (appId in config.enabledAppIds) {
             val app = catalog.SUPPORTED_APPS.find { it.id == appId } ?: continue
@@ -513,6 +642,18 @@ class FocusPolicyEngine(
         is EngineState.InHardBlock -> state.reason == BlockReason.COOLDOWN_ACTIVE
     }
 
+    /**
+     * Indica se o serviço deve escutar trocas de janela de todos os pacotes para detectar saída ao Launcher.
+     * Permanece verdadeiro enquanto houver barreira ou sessão ativa em primeiro plano, evitando que eventos
+     * [InterventionAction.NoOp] (ex: abertura de teclado virtual) desliguem o monitoramento da sessão.
+     */
+    fun shouldListenToAllPackages(): Boolean = when (val state = currentState) {
+        EngineState.Idle -> false
+        is EngineState.InMindfulPause -> true
+        is EngineState.InActiveSession -> !state.isPausedInBackground
+        is EngineState.InHardBlock -> true
+    }
+
     private fun computeProgressivePauseSeconds(config: FocusConfig, sessionsStartedToday: Int): Int {
         val base = config.mindfulPauseSeconds
         if (!config.progressivePauseEnabled || sessionsStartedToday <= 0) {
@@ -535,6 +676,9 @@ class FocusPolicyEngine(
             remainingDailyQuotaSeconds >= QUICK_MICRO_SESSION_SECONDS &&
             config.sessionDurationMinutes > 1
 
+        val effectiveReclaimedSec = minOf(config.sessionDurationSeconds, remainingDailyQuotaSeconds).coerceAtLeast(0L)
+        val effectiveReclaimedMin = ((effectiveReclaimedSec + 59L) / 60L).toInt().coerceAtLeast(1)
+
         return InterventionAction.ShowMindfulPause(
             appId = app.id,
             displayName = app.displayName,
@@ -544,7 +688,7 @@ class FocusPolicyEngine(
             breathingCue = computeBreathingCue(remainingPauseSeconds, readyToStartSession),
             anchorActionLabel = "Fechar e ir: ${config.selectedAnchorHabit}",
             rewardBannerText = formatOverlayRewardBanner(reward),
-            reclaimedMinutesOnAbort = config.sessionDurationMinutes,
+            reclaimedMinutesOnAbort = effectiveReclaimedMin,
             allowQuickMicroSession = allowMicro
         )
     }
@@ -603,12 +747,16 @@ class FocusPolicyEngine(
     private fun handleExitToNonMonitoredApp(): InterventionAction {
         when (val state = currentState) {
             is EngineState.InActiveSession -> {
-                if (!state.isPausedInBackground) {
-                    currentState = state.copy(
+                val paused = if (!state.isPausedInBackground) {
+                    state.copy(
                         isPausedInBackground = true,
                         pausedAtRealtimeMs = timeProvider.elapsedRealtimeMs()
                     )
+                } else {
+                    state
                 }
+                pausedSessionsByAppId[state.app.id] = paused
+                currentState = paused
             }
             is EngineState.InMindfulPause, is EngineState.InHardBlock -> {
                 currentState = EngineState.Idle

@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -35,6 +36,8 @@ class OverlayController(
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
     private var barrierRootView: LinearLayout? = null
+    private var barrierWindowParams: WindowManager.LayoutParams? = null
+    private var lastBarrierKeepScreenOn: Boolean? = null
     private var barrierTitleText: TextView? = null
     private var barrierSubtitleText: TextView? = null
     private var barrierCounterText: TextView? = null
@@ -134,6 +137,24 @@ class OverlayController(
     ) {
         if (barrierRootView == null) {
             createAndAttachBarrierView()
+        }
+
+        // Mantém a tela acesa apenas enquanto a contagem regressiva da pausa está ativa;
+        // libera o timeout normal da tela assim que chega em "Pronto" ou em telas de bloqueio estrito.
+        val shouldKeepScreenOn = isMindfulPauseActive && !proceedEnabled
+        if (lastBarrierKeepScreenOn != shouldKeepScreenOn) {
+            lastBarrierKeepScreenOn = shouldKeepScreenOn
+            val view = barrierRootView
+            val params = barrierWindowParams
+            if (view != null && params != null && view.isAttachedToWindow) {
+                params.flags = if (shouldKeepScreenOn) {
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                } else {
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                }
+                runCatching { windowManager.updateViewLayout(view, params) }
+            }
         }
 
         barrierTitleText?.text = title
@@ -236,7 +257,7 @@ class OverlayController(
             background = roundedRect(fillColor = COLOR_EXIT_BTN_BG, cornerDp = 12)
             setPadding(dp(20), dp(14), dp(20), dp(14))
             setOnClickListener { view ->
-                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                performConfirmHaptic(view)
                 if (isMindfulPauseActive) {
                     text = "✓ Boa escolha! +${currentReclaimedMinutesOnAbort} min resgatados 🌱"
                 }
@@ -285,8 +306,7 @@ class OverlayController(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.CENTER
@@ -295,6 +315,8 @@ class OverlayController(
         runCatching {
             windowManager.addView(root, windowParams)
             barrierRootView = root
+            barrierWindowParams = windowParams
+            lastBarrierKeepScreenOn = false
             barrierTitleText = titleView
             barrierSubtitleText = subtitleView
             barrierCounterText = counterView
@@ -312,6 +334,8 @@ class OverlayController(
             runCatching { windowManager.removeViewImmediate(view) }
         }
         barrierRootView = null
+        barrierWindowParams = null
+        lastBarrierKeepScreenOn = null
         barrierTitleText = null
         barrierSubtitleText = null
         barrierCounterText = null
@@ -374,7 +398,7 @@ class OverlayController(
             }
             // Toque longo: encerra a sessão voluntariamente com Bônus de Saída Consciente
             setOnLongClickListener { view ->
-                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                performConfirmHaptic(view)
                 onEndSessionEarlyClicked()
                 true
             }
@@ -396,6 +420,15 @@ class OverlayController(
         floatingPillText = null
         floatingPillParams = null
         lastPillEndingSoonState = null
+    }
+
+    private fun performConfirmHaptic(view: View) {
+        val feedbackConstant = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            HapticFeedbackConstants.CONFIRM
+        } else {
+            HapticFeedbackConstants.LONG_PRESS
+        }
+        view.performHapticFeedback(feedbackConstant)
     }
 
     private fun roundedRect(

@@ -1,50 +1,51 @@
-# FocusGuard — Anti-Doomscrolling Ultraleve para Android (4 GB RAM)
+# FocusGuard — Ultra-Light Anti-Doomscrolling for Android (4 GB RAM)
 
-Aplicativo Android nativo progettado sob a filosofia **Zero-Bloat** (`~5–12 MB` de RAM em segundo plano, `0%` de CPU ociosa e zero anúncios/telemetria) para eliminar o hábito de *deep scrolling* no Instagram, TikTok, YouTube, X/Twitter, Reddit e outras redes sociais.
+Native Android application engineered under a strict **Zero-Bloat** philosophy (`~5–12 MB` background RAM, `0%` idle CPU, and zero ads/telemetry) to break automatic *deep scrolling* habits on Instagram, TikTok, YouTube, X/Twitter, Reddit, and other social networks.
 
 ---
 
-## Como Compilar e Instalar no seu Celular
+## How to Build and Install on Your Phone
 
-### Opção 1: Via Android Studio (Mais simples)
-1. Abra o Android Studio e selecione **Open** -> `/home/johnb/Projects/focus-guard`.
-2. Conecte seu celular via cabo USB com a **Depuração USB** ativada nas *Opções do Desenvolvedor*.
-3. Clique em **Run (`▶`)** para compilar e instalar direto no aparelho.
+### Option 1: Via Android Studio (Easiest)
+1. Open Android Studio and select **Open** -> `/home/johnb/Projects/focus-guard`.
+2. Connect your phone via USB with **USB Debugging** enabled in *Developer Options*.
+3. Click **Run (`▶`)** to compile and install directly on your device.
 
-### Opção 2: Via Linha de Comando (CLI)
-Em um ambiente com JDK 17+ e Android SDK configurados:
+### Option 2: Via Command Line (CLI)
+In an environment with JDK 17+ and Android SDK configured:
 
 ```bash
-# Rodar a suíte de testes unitários na JVM (Roda em < 2 segundos)
-gradle test
+# Run the JVM unit test suite (executes in < 2 seconds)
+./gradlew test
 
-# Gerar o APK otimizado com R8/ProGuard (< 1.5 MB)
-gradle assembleDebug
+# Build the R8/ProGuard-optimized Release APK (< 1.5 MB)
+./gradlew assembleRelease
 
-# Instalar no celular conectado via ADB
+# Or build the Debug APK and install via ADB
+./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---
 
-## Ativando no Aparelho (Passo Único)
+## One-Time Device Activation
 
-1. Abra o **FocusGuard** no celular.
-2. Toque no botão **"Ativar Serviço de Acessibilidade"** no topo da tela.
-3. Na lista do Android, toque em **FocusGuard** e ative a chave.
-   - *Nota para Android 13+ (Configurações Restritas):* Caso o Android mostre o aviso de "Configuração restrita" por ser um APK instalado fora da Play Store, vá em *Configurações > Aplicativos > FocusGuard > Menu (⋮ no canto superior direito) > Permitir configurações restritas* e depois ative a Acessibilidade normalmente.
+1. Open **FocusGuard** on your phone.
+2. Tap the **"Ativar Serviço de Acessibilidade"** button at the top of the screen.
+3. In the Android Accessibility list, tap **FocusGuard** and toggle the switch on.
+   - *Note for Android 13+ (Restricted Settings):* If Android shows a "Restricted setting" dialog because the APK was sideloaded outside the Play Store, open *Settings > Apps > FocusGuard > Menu (⋮ in the top-right corner) > Allow restricted settings*, then enable the Accessibility Service normally.
 
 ---
 
-## Como Auditar o Consumo de RAM no seu Celular
+## Auditing RAM Consumption on Your Device
 
-Com o celular plugado via USB, rode:
+With your phone connected via USB, run:
 
 ```bash
-adb shell dumpsys meminfo com.focusguard.app.debug | head -n 35
+adb shell dumpsys meminfo com.focusguard.app | head -n 35
 ```
 
-Você verá o **TOTAL PSS** estacionado na faixa de **5 MB a 12 MB**, porque:
-- `canRetrieveWindowContent="false"` impede que o Android serialize árvores de interface via Binder IPC.
-- `serviceInfo.packageNames` filtra os pacotes direto no sistema operacional quando em repouso.
-- Nenhuma biblioteca de UI pesada (Jetpack Compose / AppCompat / Material) ou SDK de terceiros é carregada.
+You will observe **TOTAL PSS** parked between **5 MB and 12 MB**, because:
+- `canRetrieveWindowContent="false"` prevents Android from serializing view hierarchies across Binder IPC.
+- `serviceInfo.packageNames` filters target packages directly at the OS level while idle.
+- Zero heavy UI frameworks (Jetpack Compose / AppCompat / Material) or third-party SDKs are loaded into memory.

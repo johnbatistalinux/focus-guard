@@ -143,6 +143,33 @@ class FocusPreferencesStoreTest {
         assertEquals(45L, cached.usedDailySeconds)
     }
 
+    @Test
+    fun `retrocesso de relogio ou fuso horario nao desloca consistencyBitmask indevidamente`() {
+        val day10 = 20_010L
+        val day9 = 20_009L
+
+        store.saveRewardState(
+            FocusRewardState(
+                epochDay = day10,
+                attemptsToday = 3,
+                abortedToday = 2,
+                voluntaryExitsToday = 1,
+                reclaimedSecondsToday = 600L,
+                totalReclaimedSeconds = 1800L,
+                totalImpulsesBeaten = 5,
+                consistencyBitmask = 0b1011L,
+                trackedDaysCount = 4
+            )
+        )
+
+        val rolledBack = store.getRewardState(day9)
+        assertEquals(day9, rolledBack.epochDay)
+        assertEquals(0b1011L, rolledBack.consistencyBitmask)
+        assertEquals(4, rolledBack.trackedDaysCount)
+        assertEquals(1800L, rolledBack.totalReclaimedSeconds)
+        assertEquals(5, rolledBack.totalImpulsesBeaten)
+    }
+
     private class FakeKeyValueBackend : KeyValueBackend {
         private val stringSets = mutableMapOf<String, Set<String>>()
         private val ints = mutableMapOf<String, Int>()

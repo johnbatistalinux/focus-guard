@@ -2,6 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- ZERO permissão de INTERNET, ZERO QUERY_ALL_PACKAGES, ZERO SYSTEM_ALERT_WINDOW extra -->
+    <queries>
+        <intent>
+            <action android:name="android.view.InputMethod" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="false"

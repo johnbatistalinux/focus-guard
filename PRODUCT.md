@@ -1,80 +1,80 @@
 # Product Specification — FocusGuard (Ultra-Light Anti-Doomscrolling)
 
-## 1. Problema & Proposta de Valor
+## 1. Problem & Value Proposition
 
-### O Problema
-Aplicativos comerciais de bloqueio de redes sociais e controle de tempo de tela (StayFree, AppBlock, One Sec) sofrem de dois problemas críticos para aparelhos de entrada/intermediários (como dispositivos com **4 GB de RAM**):
-1. **Bloatware e Consumo Excessivo de RAM (150 MB – 300 MB):** Carregam dezenas de SDKs de anúncios (AdMob, UnityAds), rastreadores de telemetria, bancos de dados pesados e frameworks híbridos que engasgam o sistema e acionam o *Low Memory Killer* (LMK) do Android.
-2. **Polling Ineficiente e Dreno de Bateria:** Serviços mal arquitetados rodam loops contínuos em segundo plano em vez de reagir a eventos do sistema operacional.
+### The Problem
+Commercial social media blockers and screen-time management apps (StayFree, AppBlock, One Sec) suffer from two critical flaws on entry-level and mid-range devices (such as smartphones with **4 GB of RAM**):
+1. **Bloatware & Excessive RAM Footprint (150 MB – 300 MB):** They bundle dozens of ad SDKs (AdMob, UnityAds), telemetry trackers, heavy databases, and hybrid frameworks that choke the system and trigger Android's *Low Memory Killer* (LMK).
+2. **Inefficient Polling & Battery Drain:** Poorly architected background services run continuous polling loops instead of reacting to OS-level window events.
 
-### Proposta de Valor
-O **FocusGuard** é um interceptador nativo de redes sociais para Android projetado sob a filosofia **Zero-Bloat**:
-- **Orçamento Estrito de Memória:** Consumo em segundo plano entre **5 MB e 12 MB de RAM**, utilizando 100% componentes nativos pré-carregados no processo `Zygote` do Android (sem Jetpack Compose, sem bibliotecas de terceiros).
-- **Zero CPU Ociosa (0% Idle CPU):** Arquitetura 100% orientada a eventos do kernel/framework via `AccessibilityService` com filtro dinâmico de pacotes (`packageNames`).
-- **Privacidade Total (Zero-Network):** O aplicativo não declara sequer a permissão `android.permission.INTERNET` no manifesto. Zero anúncios, zero telemetria.
+### Value Proposition
+**FocusGuard** is a native Android social media interceptor engineered under a strict **Zero-Bloat** philosophy:
+- **Strict Memory Budget:** Background footprint between **5 MB and 12 MB of RAM**, using 100% native platform components preloaded in Android's `Zygote` process (zero Jetpack Compose, zero third-party runtime libraries).
+- **Zero Idle CPU (0% Idle CPU):** 100% kernel/framework event-driven architecture via `AccessibilityService` with dynamic package filtering (`packageNames`).
+- **Total Privacy (Zero-Network):** Does not even declare `android.permission.INTERNET` in the manifest. Zero ads, zero telemetry.
 
-### Métricas de Sucesso (SLAs Técnicos)
-| Métrica | Meta Estrita |
+### Success Metrics (Technical SLAs)
+| Metric | Strict Target |
 | :--- | :--- |
-| **Consumo de RAM (Serviço em 2º Plano)** | `< 15 MB` (Alvo: `5–12 MB` no `dumpsys meminfo`) |
-| **Uso de CPU em Ociosidade** | `0.0%` quando nenhum app monitorado está em transição |
-| **Latência de Interceptação** | `< 50 ms` (zero flash do feed antes da barreira visual) |
-| **Tamanho do APK Final (Release)** | `< 1.5 MB` |
-| **Permissões Exigidas** | Apenas `BIND_ACCESSIBILITY_SERVICE` (usa `TYPE_ACCESSIBILITY_OVERLAY` nativo) |
+| **Background RAM Footprint** | `< 15 MB` (Target: `5–12 MB` in `dumpsys meminfo`) |
+| **Idle CPU Usage** | `0.0%` when no monitored app is transitioning |
+| **Interception Latency** | `< 50 ms` (zero feed flash before visual barrier) |
+| **Final Release APK Size** | `< 1.5 MB` |
+| **Required Permissions** | Only `BIND_ACCESSIBILITY_SERVICE` (uses native `TYPE_ACCESSIBILITY_OVERLAY`) |
 
 ---
 
-## 2. Persona & Jornadas do Usuário
+## 2. Target Persona & User Journeys
 
-### Persona Principal
-Usuário de smartphone Android com 4 GB de RAM que deseja eliminar o hábito de *deep scrolling* (rolagem infinita automática) no Instagram e redes sociais sem sacrificar a fluidez do sistema operacional nem ser bombardeado por anúncios.
+### Primary Persona
+Android smartphone user with 4 GB of RAM who wants to break the automatic *deep scrolling* habit on Instagram and other social networks without sacrificing OS responsiveness or being bombarded by ads.
 
-### Jornada 1: Configuração Inicial (Onboarding Enxuto)
-1. Usuário abre o **FocusGuard**.
-2. Vê o status do Serviço de Acessibilidade e um botão direto para ativá-lo nas Configurações do Android.
-3. Na lista enxuta de redes sociais pré-mapeadas (Instagram, TikTok, YouTube, X/Twitter, Reddit, Facebook, Threads, Kwai), ativa os switches dos apps que deseja monitorar.
-4. Ajusta (ou mantém os padrões recomendados) os 3 parâmetros globais:
-   - **Tempo da Pausa Consciente** (Padrão: `10 segundos`)
-   - **Duração da Sessão Liberada** (Padrão: `5 minutos`)
-   - **Cooldown Pós-Sessão** (Padrão: `10 minutos`)
-   - **Cota Máxima Diária** (Padrão: `30 minutos`)
+### Journey 1: Lean Onboarding & Configuration
+1. User opens **FocusGuard**.
+2. Views the Accessibility Service status and a direct shortcut button to enable it in Android Settings.
+3. From the curated social media catalog (Instagram, TikTok, YouTube, X/Twitter, Reddit, Facebook, Threads, Kwai), toggles the switches for the apps to monitor.
+4. Adjusts (or keeps recommended defaults for) the global parameters:
+   - **Mindful Pause Duration** (Default: `10 seconds`)
+   - **Allowed Session Duration** (Default: `5 minutes`)
+   - **Post-Session Cooldown** (Default: `10 minutes`)
+   - **Maximum Daily Quota** (Default: `30 minutes`)
 
-### Jornada 2: Tentativa de Abertura por Impulso (Fricção Consciente)
-1. Usuário toca no ícone do **Instagram**.
-2. Instantaneamente (`< 50 ms`), antes de ver qualquer post, o `FocusAccessibilityService` injeta o overlay em tela cheia (`TYPE_ACCESSIBILITY_OVERLAY`).
-3. A tela escura minimalista exibe:
-   - Contador regressivo da **Pausa Consciente** (`10s... 9s...`).
-   - Quanto tempo da cota diária ainda resta hoje (ex: `Restam 20 min hoje`).
-   - Botão primário destacado: **"Fechar e voltar ao que importa"** (aciona `GLOBAL_ACTION_HOME` imediatamente).
-   - Botão secundário (desabilitado até zerar os 10s): **"Liberar sessão de 5 min"**.
+### Journey 2: Impulsive App Launch (Mindful Friction)
+1. User taps the **Instagram** icon.
+2. Instantly (`< 50 ms`), before any feed content is visible, `FocusAccessibilityService` attaches the full-screen overlay (`TYPE_ACCESSIBILITY_OVERLAY`).
+3. The minimalist dark screen displays:
+   - **Mindful Pause** countdown (`10s... 9s...`) with a 1 Hz breathing guide.
+   - Remaining daily quota for today (e.g., `20 min remaining today`).
+   - Highlighted primary button: **"Close & Return to What Matters"** (triggers `GLOBAL_ACTION_HOME` immediately with haptic confirmation).
+   - Secondary options (enabled only after countdown reaches 0s): **"Quick Reply (1 min)"** or **"Unlock 5 min Session"**.
 
-### Jornada 3: Uso Consciente com Mini-Cronômetro Flutuante
-1. Caso o usuário aguarde os 10s e confirme a entrada, o overlay em tela cheia é desmontado e substituído por uma **pílula flutuante minimalista** no canto superior da tela (`04:59`).
-2. Se o usuário sair do Instagram antes dos 5 minutos (for para a Home ou para o WhatsApp), o cronômetro pausa imediatamente e a pílula some da tela.
-3. Quando o cronômetro da sessão chega a `00:00`:
-   - O FocusGuard executa `performGlobalAction(GLOBAL_ACTION_HOME)` expulsando o usuário do feed.
-   - Inicia o **Cooldown Pós-Sessão de 10 minutos** para aquele aplicativo.
+### Journey 3: Mindful Usage with Floating Session Pill
+1. If the user waits out the pause and confirms entry, the full-screen barrier is detached and replaced by a **minimalist floating pill** at the top corner of the screen (`04:59`).
+2. If the user exits Instagram before the session expires (e.g., returns to the Home screen or switches to WhatsApp), the timer pauses immediately and the pill detaches.
+3. When the session timer reaches `00:00`:
+   - FocusGuard executes `performGlobalAction(GLOBAL_ACTION_HOME)`, ejecting the user from the feed.
+   - Starts the **10-minute Post-Session Cooldown** for that app.
 
-### Jornada 4: Bloqueio por Cooldown ou Cota Diária Esgotada
-1. Se o usuário tentar reabrir o Instagram durante os 10 minutos de Cooldown (ou após gastar os 30 minutos diários), o overlay exibe a tela de **Bloqueio Estrito**:
-   - Mostra o tempo restante de Cooldown (ou informa que a cota do dia acabou até a meia-noite).
-   - Único botão disponível: **"Voltar para a Tela Inicial"**.
+### Journey 4: Strict Block on Cooldown or Exhausted Daily Quota
+1. If the user attempts to reopen Instagram during the 10-minute Cooldown (or after exhausting the 30-minute daily quota), the overlay presents the **Strict Block** screen:
+   - Displays the remaining Cooldown timer (or informs that today's quota is exhausted until midnight).
+   - Only available button: **"Return to Home Screen"**.
 
 ---
 
-## 3. Regras de Negócio & Invariantes Não-Negociáveis
+## 3. Business Rules & Non-Negotiable Invariants
 
-1. **Filtro no Nível do Sistema Operacional:** O serviço de acessibilidade **nunca** deve escutar todos os pacotes do aparelho (`packageNames = null` é proibido). Sempre que o usuário ligar/desligar um app na lista, o `AccessibilityServiceInfo.packageNames` deve ser atualizado apenas com os pacotes ativos.
-2. **Desalocação Imediata de Views:** Quando não houver barreira nem sessão ativa em tela, nenhuma `View` de overlay pode permanecer anexada ao `WindowManager`.
-3. **Trava Anti-Sabotagem (Anti-Bypass):**
-   - Enquanto qualquer aplicativo monitorado estiver em **Cooldown** ou com a **Cota Diária Esgotada**, a tela de configurações do FocusGuard entra em **Modo Somente Leitura (Trava Ativa)**: o usuário não pode desativar o switch do app nem aumentar o limite diário até que o cooldown termine ou o dia vire.
-4. **Reset Diário Automático (Lazy Evaluation):** Não usar `AlarmManager` em segundo plano à meia-noite para zerar contadores. O reset diário deve ser calculado de forma preguiçosa (*lazy*) comparando a data atual (`LocalDate` / epoch day) no momento em que o usuário interage com o serviço ou abre o app.
-5. **Reforço Positivo e Fricção Consciente (Zero-Bloat):**
-   - **Placar de Impulsos Vencidos & Tempo Resgatado:** Contabiliza desistências conscientes na barreira e converte o tempo poupado em equivalentes tangíveis da vida real (páginas lidas, caminhadas).
-   - **Âncora de Identidade & Celebração Háptica:** Botão verde de saída exibe uma meta real escolhida pelo usuário e aciona `HapticFeedbackConstants.CONFIRM` ao desistir.
-   - **Micro-Sessão Rápida (1 min) & Bônus de Saída Voluntária:** Permite sessões de 1 min para responder mensagens e reduz o Cooldown em 50% (ou isenta se `< 60s`) quando o usuário encerra a sessão antes do fim.
-   - **Consistência Resiliente em Bitmask (`Long`):** Acompanha os últimos dias dentro da meta em apenas 8 bytes, sem zerar o progresso por um único deslize.
-6. **Catálogo Fixo Curado:** Sem uso da permissão `QUERY_ALL_PACKAGES`. O catálogo contém os pacotes oficiais:
+1. **OS-Level Package Filtering:** The accessibility service must **never** listen to all packages on the device (`packageNames = null` is prohibited) while idle. Whenever the user toggles a monitored app, `AccessibilityServiceInfo.packageNames` must be dynamically updated to only the active target packages.
+2. **Immediate View Deallocation:** When no barrier or active session is on screen, zero overlay `View` instances may remain attached to `WindowManager`.
+3. **Anti-Bypass Lock:**
+   - While any monitored app is in **Cooldown** or has its **Daily Quota Exhausted**, the FocusGuard configuration screen enters **Read-Only Mode (Active Lock)**: the user cannot disable app switches or increase daily limits until the cooldown expires or the day rolls over.
+4. **Lazy Daily Reset:** Do not use background `AlarmManager` jobs at midnight to reset counters. Daily resets must be evaluated lazily by comparing the current `epochDay` (`LocalDate`) upon user/service interaction.
+5. **Positive Reinforcement & Mindful Friction (Zero-Bloat):**
+   - **Resisted Impulses & Reclaimed Time Scoreboard:** Tracks conscious exits at the barrier and converts saved time into tangible real-life equivalents (pages read, walks taken).
+   - **Identity Anchor & Haptic Celebration:** The green exit button displays a personal goal chosen by the user and triggers `HapticFeedbackConstants.CONFIRM` upon resisting an impulse.
+   - **Quick Micro-Session (1 min) & Voluntary Early-Exit Bonus:** Supports 1-minute sessions for quick replies and reduces Cooldown by 50% (or waives it completely if `< 60s` used) when the user voluntarily exits early.
+   - **Resilient Bitmask Consistency (`Long`):** Tracks recent days within the daily goal using a single 64-bit integer (8 bytes), without wiping historical progress over a single slip.
+6. **Curated Fixed Catalog:** Avoids `QUERY_ALL_PACKAGES` permission by targeting official social media packages:
    - Instagram (`com.instagram.android`)
    - TikTok (`com.zhiliaoapp.musically` / `com.ss.android.ugc.trill`)
    - YouTube (`com.google.android.youtube`)

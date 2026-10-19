@@ -51,15 +51,16 @@ class FocusPreferencesStore(
     }
 
     override fun saveConfig(config: FocusConfig) {
-        cachedConfig = config
+        val immutableConfig = config.copy(enabledAppIds = config.enabledAppIds.toSet())
+        cachedConfig = immutableConfig
         backend.editBatch {
-            putStringSet(KEY_ENABLED_APP_IDS, config.enabledAppIds)
-            putInt(KEY_MINDFUL_PAUSE_SEC, config.mindfulPauseSeconds)
-            putInt(KEY_SESSION_DURATION_MIN, config.sessionDurationMinutes)
-            putInt(KEY_COOLDOWN_MIN, config.cooldownMinutes)
-            putInt(KEY_DAILY_QUOTA_MIN, config.dailyQuotaMinutes)
-            putBoolean(KEY_PROGRESSIVE_PAUSE_ENABLED, config.progressivePauseEnabled)
-            putString(KEY_SELECTED_ANCHOR_HABIT, config.selectedAnchorHabit)
+            putStringSet(KEY_ENABLED_APP_IDS, immutableConfig.enabledAppIds)
+            putInt(KEY_MINDFUL_PAUSE_SEC, immutableConfig.mindfulPauseSeconds)
+            putInt(KEY_SESSION_DURATION_MIN, immutableConfig.sessionDurationMinutes)
+            putInt(KEY_COOLDOWN_MIN, immutableConfig.cooldownMinutes)
+            putInt(KEY_DAILY_QUOTA_MIN, immutableConfig.dailyQuotaMinutes)
+            putBoolean(KEY_PROGRESSIVE_PAUSE_ENABLED, immutableConfig.progressivePauseEnabled)
+            putString(KEY_SELECTED_ANCHOR_HABIT, immutableConfig.selectedAnchorHabit)
         }
     }
 
@@ -149,7 +150,7 @@ class FocusPreferencesStore(
             return initial
         }
 
-        if (storedEpochDay != currentEpochDay) {
+        if (currentEpochDay > storedEpochDay) {
             val daysDelta = (currentEpochDay - storedEpochDay).coerceIn(1L, 62L).toInt()
             val shiftedOld = storedMask shl daysDelta
             val gapOnes = (1L shl daysDelta) - 1L
@@ -169,6 +170,21 @@ class FocusPreferencesStore(
             )
             saveRewardState(rolledOver)
             return rolledOver
+        } else if (currentEpochDay < storedEpochDay) {
+            // Protege a máscara de consistência caso o relógio do sistema seja atrasado ou mude de fuso
+            val adjusted = FocusRewardState(
+                epochDay = currentEpochDay,
+                attemptsToday = 0,
+                abortedToday = 0,
+                voluntaryExitsToday = 0,
+                reclaimedSecondsToday = 0L,
+                totalReclaimedSeconds = totalReclaimed,
+                totalImpulsesBeaten = totalBeaten,
+                consistencyBitmask = storedMask,
+                trackedDaysCount = storedTrackedDays
+            )
+            saveRewardState(adjusted)
+            return adjusted
         }
 
         val loaded = FocusRewardState(

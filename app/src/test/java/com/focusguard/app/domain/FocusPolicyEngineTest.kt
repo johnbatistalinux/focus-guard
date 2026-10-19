@@ -49,6 +49,40 @@ class FocusPolicyEngineTest {
     }
 
     @Test
+    fun `abrir teclado virtual ou autofill dentro do Instagram mantem cronometro e escuta ativos sem sumir`() {
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+        assertTrue(engine.shouldRunTicker())
+        assertTrue(engine.shouldListenToAllPackages())
+
+        // Eventos emitidos ao abrir o teclado no Instagram (Gboard, Autofill do Android, System Intelligence e SoftInputWindow)
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.google.android.inputmethod.latin"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("android"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.google.android.as"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.android.credentialmanager"))
+        assertEquals(
+            InterventionAction.NoOp,
+            engine.onWindowPackageChanged("org.custom.ime", "android.inputmethodservice.SoftInputWindow")
+        )
+        assertEquals(
+            InterventionAction.NoOp,
+            engine.onWindowPackageChanged("com.instagram.android", "android.widget.PopupWindow\$PopupDecorView")
+        )
+
+        // O cronômetro e a escuta de saída continuam 100% ativos durante a digitação
+        assertTrue(engine.shouldRunTicker())
+        assertTrue(engine.shouldListenToAllPackages())
+
+        fakeTime.advanceSeconds(1)
+        val tickAction = engine.onSecondTick() as InterventionAction.ShowFloatingTimer
+        assertEquals(299L, tickAction.remainingSessionSeconds)
+    }
+
+    @Test
     fun `onScreenTurnedOff pausa a sessao imediatamente impedindo gasto de cota com a tela apagada`() {
         engine.onWindowPackageChanged("com.instagram.android")
         repeat(10) {
@@ -340,6 +374,120 @@ class FocusPolicyEngineTest {
         val reopenDuringHalfCooldown = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowHardBlock
         assertEquals(BlockReason.COOLDOWN_ACTIVE, reopenDuringHalfCooldown.reason)
         assertEquals(300L, reopenDuringHalfCooldown.remainingBlockSeconds)
+    }
+
+    @Test
+    fun `alternar entre dois apps monitorados preserva sessao pausada sem creditar saida voluntaria falsa`() {
+        fakeStore.saveConfig(
+            fakeStore.getConfig().copy(enabledAppIds = setOf("instagram", "tiktok"))
+        )
+
+        // Inicia sessão de 5 min (300s) no Instagram e usa por 30s (restam 270s)
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+        repeat(30) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        // Enquanto a sessão está ativa, configurações ficam travadas (Bug #10)
+        assertTrue(engine.getSettingsLockStatus().isLocked)
+
+        // Alterna direto para o TikTok: pausa o Instagram e abre Pausa Consciente do TikTok
+        val tiktokPause = engine.onWindowPackageChanged("com.zhiliaoapp.musically")
+        assertTrue(tiktokPause is InterventionAction.ShowMindfulPause)
+        assertEquals("tiktok", (tiktokPause as InterventionAction.ShowMindfulPause).appId)
+
+        // Mesmo na barreira do TikTok, a sessão pausada do Instagram mantém as configurações travadas
+        assertTrue(engine.getSettingsLockStatus().isLocked)
+
+        // Desiste do TikTok após 5s e volta ao Instagram dentro da janela de 45s
+        fakeTime.advanceSeconds(5)
+        engine.onUserAborted()
+
+        val resumedInstagram = engine.onWindowPackageChanged("com.instagram.android")
+        assertEquals(
+            InterventionAction.ShowFloatingTimer(
+                appId = "instagram",
+                displayName = "Instagram",
+                remainingSessionSeconds = 270L,
+                remainingDailyQuotaSeconds = 1770L
+            ),
+            resumedInstagram
+        )
+        // Não deve ter creditado saída voluntária antecipada falsa no Instagram
+        assertEquals(0, engine.getRewardSummary().voluntaryExitsToday)
+    }
+
+    @Test
+    fun `fim de cooldown em ShowHardBlock transiciona para DAILY_QUOTA_EXCEEDED quando cota diaria zerou`() {
+        // Entra na tela de bloqueio por Cooldown ativo (2s restantes)
+        fakeStore.saveUsageState(
+            AppUsageState(
+                appId = "instagram",
+                epochDay = 20_000L,
+                usedDailySeconds = 1500L,
+                cooldownUntilRealtimeMs = fakeTime.elapsedRealtimeMs() + 2_000L,
+                sessionsStartedToday = 5
+            )
+        )
+
+        val initialBlock = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowHardBlock
+        assertEquals(BlockReason.COOLDOWN_ACTIVE, initialBlock.reason)
+        assertEquals(2L, initialBlock.remainingBlockSeconds)
+
+        fakeTime.advanceSeconds(1)
+        val tick1 = engine.onSecondTick() as InterventionAction.ShowHardBlock
+        assertEquals(BlockReason.COOLDOWN_ACTIVE, tick1.reason)
+        assertEquals(1L, tick1.remainingBlockSeconds)
+
+        // Simula cota diária atingida (1800s) no momento em que o cooldown zera
+        fakeStore.saveUsageState(
+            AppUsageState(
+                appId = "instagram",
+                epochDay = 20_000L,
+                usedDailySeconds = 1800L,
+                cooldownUntilRealtimeMs = fakeTime.elapsedRealtimeMs() + 1_000L,
+                sessionsStartedToday = 6
+            )
+        )
+
+        // Quando o cooldown zera mas a cota diária está esgotada, transiciona para DAILY_QUOTA_EXCEEDED em vez de ShowMindfulPause
+        fakeTime.advanceSeconds(1)
+        val tick2 = engine.onSecondTick() as InterventionAction.ShowHardBlock
+        assertEquals(BlockReason.DAILY_QUOTA_EXCEEDED, tick2.reason)
+    }
+
+    @Test
+    fun `distingue MainActivity do FocusGuard de janelas de overlay e ignora classes de teclado ou popup`() {
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+
+        // Evento de overlay do próprio FocusGuard (sem className de MainActivity) -> NoOp
+        assertEquals(
+            InterventionAction.NoOp,
+            engine.onWindowPackageChanged("com.focusguard.app", className = "android.widget.FrameLayout")
+        )
+
+        // Evento de janela transitória (SoftInputWindow / PopupWindow) mesmo com pacote desconhecido -> NoOp
+        assertEquals(
+            InterventionAction.NoOp,
+            engine.onWindowPackageChanged("com.oem.customkeyboard", className = "android.inputmethodservice.SoftInputWindow")
+        )
+
+        // Abrir a MainActivity real do FocusGuard pausa a sessão e oculta o overlay para não cobrir a UI
+        assertEquals(
+            InterventionAction.DismissOverlay,
+            engine.onWindowPackageChanged("com.focusguard.app", className = "com.focusguard.app.ui.MainActivity")
+        )
     }
 
     private class FakeTimeProvider(

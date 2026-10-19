@@ -398,7 +398,13 @@ class MainActivity : Activity() {
                 },
                 onIncrement = {
                     val next = (config.sessionDurationMinutes + 1).coerceAtMost(30)
-                    updateConfig(config.copy(sessionDurationMinutes = next))
+                    val coercedDailyQuota = maxOf(config.dailyQuotaMinutes, next)
+                    updateConfig(
+                        config.copy(
+                            sessionDurationMinutes = next,
+                            dailyQuotaMinutes = coercedDailyQuota
+                        )
+                    )
                 }
             )
         )
@@ -426,7 +432,13 @@ class MainActivity : Activity() {
                 isLocked = isLocked,
                 onDecrement = {
                     val next = (config.dailyQuotaMinutes - 5).coerceAtLeast(5)
-                    updateConfig(config.copy(dailyQuotaMinutes = next))
+                    val coercedSession = minOf(config.sessionDurationMinutes, next)
+                    updateConfig(
+                        config.copy(
+                            dailyQuotaMinutes = next,
+                            sessionDurationMinutes = coercedSession
+                        )
+                    )
                 },
                 onIncrement = {
                     val next = (config.dailyQuotaMinutes + 5).coerceAtMost(120)
