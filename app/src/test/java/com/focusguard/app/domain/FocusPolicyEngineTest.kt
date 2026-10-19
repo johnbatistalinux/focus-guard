@@ -83,6 +83,54 @@ class FocusPolicyEngineTest {
     }
 
     @Test
+    fun `abrir teclado padrao da samsung e servicos auxiliares no Instagram mantem sessao ativa e cronometro visivel`() {
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+        assertTrue(engine.shouldRunTicker())
+        assertTrue(engine.shouldListenToAllPackages())
+
+        // Samsung Honeyboard principal
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.honeyboard"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.sec.android.inputmethod"))
+
+        // Samsung Smart Suggestions (helper que abre sobre o teclado Samsung One UI)
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.smartsuggestions"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.scs"))
+
+        // Componentes e painéis auxiliares do teclado Samsung
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.icecone"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.neatart"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.sdk.handwriting"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.stickercenter"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.aremoji"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.intelligence"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.bixby.service"))
+        assertEquals(InterventionAction.NoOp, engine.onWindowPackageChanged("com.samsung.android.app.clipboardedge"))
+
+        // Classes de janela do teclado e sugestões Samsung
+        assertEquals(
+            InterventionAction.NoOp,
+            engine.onWindowPackageChanged("com.samsung.android.honeyboard", "com.samsung.android.honeyboard.ui.KeyboardScreenView")
+        )
+        assertEquals(
+            InterventionAction.NoOp,
+            engine.onWindowPackageChanged("com.samsung.android.smartsuggestions", "com.samsung.android.smartsuggestions.SuggestionsView")
+        )
+
+        // O cronômetro continua rodando e a escuta ampla permanece ativa
+        assertTrue(engine.shouldRunTicker())
+        assertTrue(engine.shouldListenToAllPackages())
+
+        fakeTime.advanceSeconds(1)
+        val tickAction = engine.onSecondTick() as InterventionAction.ShowFloatingTimer
+        assertEquals(299L, tickAction.remainingSessionSeconds)
+    }
+
+    @Test
     fun `onScreenTurnedOff pausa a sessao imediatamente impedindo gasto de cota com a tela apagada`() {
         engine.onWindowPackageChanged("com.instagram.android")
         repeat(10) {

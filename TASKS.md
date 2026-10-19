@@ -44,3 +44,8 @@
 - [x] Task 7.3: [Perf] Implement `BatchEditor` (`editBatch`), in-memory caching for `AppUsageState`/`FocusRewardState`, and process-wide `FocusRuntime` singleton
 - [x] Task 7.4: [Perf] Eliminate per-tick `GradientDrawable` and `Color.parseColor` allocations in `OverlayController`
 - [x] Task 7.5: [Build] Migrate `compilerOptions` to Kotlin 2.0 DSL and enable R8-minified Release builds (`assembleRelease`)
+
+## Milestone 8: v1.2.2 — Samsung Keyboard (One UI) & Auxiliary Service Support
+- [x] Task 8.1: [Bugfix] Prevent floating session pill from pausing or disappearing when opening default Samsung Keyboard and Smart Suggestions (`com.samsung.android.smartsuggestions`, `scs`, `icecone`, `neatart`, `sdk.handwriting`, `stickercenter`, `aremoji`, `intelligence`, `aicore`)
+- [x] Task 8.2: [A11y] Intercept transient system packages and window classes directly in `FocusAccessibilityService.onAccessibilityEvent` and prepopulate Samsung packages in `refreshImePackageCache`
+- [x] Task 8.3: [Test] Validate Samsung Keyboard and auxiliary services in JVM unit test suite

@@ -61,10 +61,23 @@ class FocusPolicyEngine(
             lower == "com.miui.phrase" ||
             lower == "com.miui.freeform" ||
             lower == "com.samsung.android.app.cocktailbarservice" ||
+            lower == "com.samsung.android.scs" ||
             lower.startsWith("com.focusguard.app") ||
             lower.contains("inputmethod") ||
             lower.contains("keyboard") ||
             lower.contains("honeyboard") ||
+            lower.contains("smartsuggestions") ||
+            lower.contains("icecone") ||
+            lower.contains("neatart") ||
+            lower.contains("handwriting") ||
+            lower.contains("stickercenter") ||
+            lower.contains("aremoji") ||
+            lower.contains("avatarstickers") ||
+            lower.contains("intelligence") ||
+            lower.contains("aicore") ||
+            lower.contains("bixby.service") ||
+            lower.contains("bixby.agent") ||
+            lower.contains("inputshare") ||
             lower.contains("swiftkey") ||
             lower.contains("gboard") ||
             lower.contains("florisboard") ||
@@ -95,12 +108,16 @@ class FocusPolicyEngine(
         val lower = className.lowercase()
         return lower.contains("softinputwindow") ||
             lower.contains("inputmethod") ||
+            lower.contains("keyboard") ||
+            lower.contains("honeyboard") ||
+            lower.contains("suggestions") ||
             lower.contains("popupwindow") ||
             lower.contains("popupdecorview") ||
             lower.contains("autofill") ||
             lower.contains("magnifier") ||
             lower.contains("toast") ||
-            lower.contains("floatingtoolbar")
+            lower.contains("floatingtoolbar") ||
+            lower.contains("actionmode")
     }
 
     /**

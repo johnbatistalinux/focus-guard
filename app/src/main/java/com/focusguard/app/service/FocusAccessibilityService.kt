@@ -116,7 +116,11 @@ class FocusAccessibilityService : AccessibilityService() {
         }
 
         // Ignora janelas de método de entrada (teclado virtual), sistema ou overlays de acessibilidade
-        if (isTransientWindowEvent(event) || isSystemInputMethodPackage(pkgName)) {
+        if (isTransientWindowEvent(event) ||
+            isSystemInputMethodPackage(pkgName) ||
+            policyEngine.isTransientSystemPackage(pkgName) ||
+            policyEngine.isTransientWindowClassName(clsName)
+        ) {
             return
         }
 
@@ -308,6 +312,14 @@ class FocusAccessibilityService : AccessibilityService() {
     private fun refreshImePackageCache() {
         lastImeCacheRefreshMs = SystemClock.elapsedRealtime()
         runCatching {
+            // Teclados e auxiliares comuns pré-carregados para resposta imediata
+            cachedImePackages.add("com.samsung.android.honeyboard")
+            cachedImePackages.add("com.sec.android.inputmethod")
+            cachedImePackages.add("com.samsung.android.smartsuggestions")
+            cachedImePackages.add("com.samsung.android.scs")
+            cachedImePackages.add("com.google.android.inputmethod.latin")
+            cachedImePackages.add("com.touchtype.swiftkey")
+
             val defaultIme = Settings.Secure.getString(
                 contentResolver,
                 Settings.Secure.DEFAULT_INPUT_METHOD
