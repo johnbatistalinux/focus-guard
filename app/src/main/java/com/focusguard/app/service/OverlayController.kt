@@ -50,6 +50,7 @@ class OverlayController(
     private var floatingPillText: TextView? = null
     private var floatingPillParams: WindowManager.LayoutParams? = null
     private var isPillAlignedStart: Boolean = false
+    private var lastPillEndingSoonState: Boolean? = null
 
     fun render(action: InterventionAction) {
         when (action) {
@@ -175,28 +176,28 @@ class OverlayController(
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#F50B0F19"))
+            setBackgroundColor(COLOR_BARRIER_BG)
             val padH = dp(28)
             val padV = dp(32)
             setPadding(padH, padV, padH, padV)
         }
 
         val titleView = TextView(context).apply {
-            setTextColor(Color.parseColor("#F8FAFC"))
+            setTextColor(COLOR_TEXT_PRIMARY)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
         }
 
         val subtitleView = TextView(context).apply {
-            setTextColor(Color.parseColor("#94A3B8"))
+            setTextColor(COLOR_TEXT_MUTED)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, dp(20))
         }
 
         val counterView = TextView(context).apply {
-            setTextColor(Color.parseColor("#38BDF8"))
+            setTextColor(COLOR_ACCENT_SKY)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
             typeface = Typeface.MONOSPACE
             gravity = Gravity.CENTER
@@ -204,11 +205,11 @@ class OverlayController(
         }
 
         val rewardBannerView = TextView(context).apply {
-            setTextColor(Color.parseColor("#6EE7B7"))
+            setTextColor(COLOR_REWARD_TEXT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = roundedRect(fillColor = "#064E3B", strokeColor = "#059669", cornerDp = 10)
+            background = roundedRect(fillColor = COLOR_REWARD_BG, strokeColor = COLOR_REWARD_BORDER, cornerDp = 10)
             setPadding(dp(14), dp(8), dp(14), dp(8))
         }
 
@@ -220,7 +221,7 @@ class OverlayController(
         }
 
         val quotaView = TextView(context).apply {
-            setTextColor(Color.parseColor("#CBD5E1"))
+            setTextColor(COLOR_TEXT_SECONDARY)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, dp(24))
@@ -229,10 +230,10 @@ class OverlayController(
         val exitBtn = Button(context).apply {
             text = "Fechar e voltar ao que importa"
             isAllCaps = false
-            setTextColor(Color.parseColor("#062E22"))
+            setTextColor(COLOR_EXIT_BTN_TEXT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
-            background = roundedRect(fillColor = "#34D399", cornerDp = 12)
+            background = roundedRect(fillColor = COLOR_EXIT_BTN_BG, cornerDp = 12)
             setPadding(dp(20), dp(14), dp(20), dp(14))
             setOnClickListener { view ->
                 view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
@@ -246,10 +247,10 @@ class OverlayController(
         val quickMicroBtn = Button(context).apply {
             text = "⚡ Sessão rápida (1 min — Só responder)"
             isAllCaps = false
-            setTextColor(Color.parseColor("#BAE6FD"))
+            setTextColor(COLOR_MICRO_BTN_TEXT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.DEFAULT_BOLD
-            background = roundedRect(fillColor = "#0C4A6E", strokeColor = "#0284C7", cornerDp = 12)
+            background = roundedRect(fillColor = COLOR_MICRO_BTN_BG, strokeColor = COLOR_MICRO_BTN_BORDER, cornerDp = 12)
             setPadding(dp(20), dp(12), dp(20), dp(12))
             visibility = View.GONE
             setOnClickListener { onConfirmSessionClicked(true) }
@@ -257,9 +258,9 @@ class OverlayController(
 
         val proceedBtn = Button(context).apply {
             isAllCaps = false
-            setTextColor(Color.parseColor("#E2E8F0"))
+            setTextColor(COLOR_PROCEED_BTN_TEXT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            background = roundedRect(fillColor = "#1E293B", strokeColor = "#475569", cornerDp = 12)
+            background = roundedRect(fillColor = COLOR_PROCEED_BTN_BG, strokeColor = COLOR_PROCEED_BTN_BORDER, cornerDp = 12)
             setPadding(dp(20), dp(12), dp(20), dp(12))
             setOnClickListener { onConfirmSessionClicked(false) }
         }
@@ -307,7 +308,9 @@ class OverlayController(
 
     private fun removeBarrier() {
         val view = barrierRootView ?: return
-        runCatching { windowManager.removeViewImmediate(view) }
+        if (view.isAttachedToWindow) {
+            runCatching { windowManager.removeViewImmediate(view) }
+        }
         barrierRootView = null
         barrierTitleText = null
         barrierSubtitleText = null
@@ -328,14 +331,16 @@ class OverlayController(
         val isEndingSoon = remainingSeconds <= 30L
         floatingPillText?.apply {
             text = "${formatDuration(remainingSeconds)} •"
-            setTextColor(
-                if (isEndingSoon) Color.parseColor("#FCA5A5") else Color.parseColor("#E2E8F0")
-            )
-            background = roundedRect(
-                fillColor = if (isEndingSoon) "#D9450A0A" else "#CC0F172A",
-                strokeColor = if (isEndingSoon) "#F87171" else "#38BDF8",
-                cornerDp = 20
-            )
+            // Só realoca e troca o Drawable quando o estado visual muda (ex: ao entrar nos últimos 30s)
+            if (lastPillEndingSoonState != isEndingSoon) {
+                lastPillEndingSoonState = isEndingSoon
+                setTextColor(if (isEndingSoon) COLOR_PILL_WARN_TEXT else COLOR_PROCEED_BTN_TEXT)
+                background = roundedRect(
+                    fillColor = if (isEndingSoon) COLOR_PILL_WARN_BG else COLOR_PILL_NORMAL_BG,
+                    strokeColor = if (isEndingSoon) COLOR_PILL_WARN_BORDER else COLOR_ACCENT_SKY,
+                    cornerDp = 20
+                )
+            }
         }
     }
 
@@ -363,7 +368,9 @@ class OverlayController(
                 isPillAlignedStart = !isPillAlignedStart
                 val updatedParams = floatingPillParams ?: return@setOnClickListener
                 updatedParams.gravity = Gravity.TOP or if (isPillAlignedStart) Gravity.START else Gravity.END
-                runCatching { windowManager.updateViewLayout(this, updatedParams) }
+                if (isAttachedToWindow) {
+                    runCatching { windowManager.updateViewLayout(this, updatedParams) }
+                }
             }
             // Toque longo: encerra a sessão voluntariamente com Bônus de Saída Consciente
             setOnLongClickListener { view ->
@@ -377,26 +384,30 @@ class OverlayController(
             windowManager.addView(pill, params)
             floatingPillText = pill
             floatingPillParams = params
+            lastPillEndingSoonState = null
         }
     }
 
     private fun removeFloatingPill() {
         val pill = floatingPillText ?: return
-        runCatching { windowManager.removeViewImmediate(pill) }
+        if (pill.isAttachedToWindow) {
+            runCatching { windowManager.removeViewImmediate(pill) }
+        }
         floatingPillText = null
         floatingPillParams = null
+        lastPillEndingSoonState = null
     }
 
     private fun roundedRect(
-        fillColor: String,
-        strokeColor: String? = null,
+        fillColor: Int,
+        strokeColor: Int? = null,
         cornerDp: Int
     ): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = dp(cornerDp).toFloat()
-        setColor(Color.parseColor(fillColor))
+        setColor(fillColor)
         if (strokeColor != null) {
-            setStroke(dp(1), Color.parseColor(strokeColor))
+            setStroke(dp(1), strokeColor)
         }
     }
 
@@ -411,5 +422,33 @@ class OverlayController(
         val minutes = clamped / 60L
         val seconds = clamped % 60L
         return String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
+
+    companion object {
+        private const val COLOR_BARRIER_BG = 0xF50B0F19.toInt()
+        private const val COLOR_TEXT_PRIMARY = 0xFFF8FAFC.toInt()
+        private const val COLOR_TEXT_SECONDARY = 0xFFCBD5E1.toInt()
+        private const val COLOR_TEXT_MUTED = 0xFF94A3B8.toInt()
+        private const val COLOR_ACCENT_SKY = 0xFF38BDF8.toInt()
+
+        private const val COLOR_REWARD_TEXT = 0xFF6EE7B7.toInt()
+        private const val COLOR_REWARD_BG = 0xFF064E3B.toInt()
+        private const val COLOR_REWARD_BORDER = 0xFF059669.toInt()
+
+        private const val COLOR_EXIT_BTN_TEXT = 0xFF062E22.toInt()
+        private const val COLOR_EXIT_BTN_BG = 0xFF34D399.toInt()
+
+        private const val COLOR_MICRO_BTN_TEXT = 0xFFBAE6FD.toInt()
+        private const val COLOR_MICRO_BTN_BG = 0xFF0C4A6E.toInt()
+        private const val COLOR_MICRO_BTN_BORDER = 0xFF0284C7.toInt()
+
+        private const val COLOR_PROCEED_BTN_TEXT = 0xFFE2E8F0.toInt()
+        private const val COLOR_PROCEED_BTN_BG = 0xFF1E293B.toInt()
+        private const val COLOR_PROCEED_BTN_BORDER = 0xFF475569.toInt()
+
+        private const val COLOR_PILL_NORMAL_BG = 0xCC0F172A.toInt()
+        private const val COLOR_PILL_WARN_TEXT = 0xFFFCA5A5.toInt()
+        private const val COLOR_PILL_WARN_BG = 0xD9450A0A.toInt()
+        private const val COLOR_PILL_WARN_BORDER = 0xFFF87171.toInt()
     }
 }

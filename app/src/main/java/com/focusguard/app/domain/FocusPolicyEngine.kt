@@ -42,17 +42,22 @@ class FocusPolicyEngine(
     private var currentState: EngineState = EngineState.Idle
 
     /**
-     * Pacotes de sistema que abrem janelas sobre o app alvo (como teclado virtual ou controle de volume)
+     * Pacotes de sistema que abrem janelas sobre o app alvo (como teclado virtual, seletor de mídia ou volume)
      * e NÃO devem cancelar nem pausar a sessão ativa.
      */
     fun isTransientSystemPackage(packageName: String): Boolean {
         val lower = packageName.lowercase()
         return lower == "com.android.systemui" ||
+            lower.startsWith("com.focusguard.app") ||
             lower.contains("inputmethod") ||
             lower.contains("keyboard") ||
-            lower == "com.google.android.gms" ||
-            lower == "com.focusguard.app" ||
-            lower == "com.focusguard.app.debug"
+            lower.contains("honeyboard") ||
+            lower.contains("swiftkey") ||
+            lower.contains("gboard") ||
+            lower.contains("permissioncontroller") ||
+            lower.contains("packageinstaller") ||
+            lower.contains("biometric") ||
+            lower == "com.google.android.gms"
     }
 
     /**
@@ -100,26 +105,28 @@ class FocusPolicyEngine(
             )
         }
 
-        // 3. Verifica se já existe estado ativo para este mesmo app
+        // 3. Verifica se já existe estado ativo para este mesmo app (ou sessão expirada em background)
         when (val state = currentState) {
             is EngineState.InActiveSession -> {
-                if (state.app.id == targetApp.id) {
-                    val awayMs = if (state.isPausedInBackground) (nowMs - state.pausedAtRealtimeMs).coerceAtLeast(0L) else 0L
-                    val graceLimitMs = config.sessionDurationSeconds * 1000L
-                    if (awayMs <= graceLimitMs && state.remainingSessionSeconds > 0L) {
-                        val effectiveRemaining = minOf(state.remainingSessionSeconds, remainingDailySeconds)
-                        currentState = state.copy(
-                            remainingSessionSeconds = effectiveRemaining,
-                            isPausedInBackground = false,
-                            pausedAtRealtimeMs = 0L
-                        )
-                        return InterventionAction.ShowFloatingTimer(
-                            appId = targetApp.id,
-                            displayName = targetApp.displayName,
-                            remainingSessionSeconds = effectiveRemaining,
-                            remainingDailyQuotaSeconds = remainingDailySeconds
-                        )
-                    }
+                val awayMs = if (state.isPausedInBackground) (nowMs - state.pausedAtRealtimeMs).coerceAtLeast(0L) else 0L
+                val graceLimitMs = config.sessionDurationSeconds * 1000L
+                if (state.app.id == targetApp.id && awayMs <= graceLimitMs && state.remainingSessionSeconds > 0L) {
+                    val effectiveRemaining = minOf(state.remainingSessionSeconds, remainingDailySeconds)
+                    currentState = state.copy(
+                        remainingSessionSeconds = effectiveRemaining,
+                        isPausedInBackground = false,
+                        pausedAtRealtimeMs = 0L
+                    )
+                    return InterventionAction.ShowFloatingTimer(
+                        appId = targetApp.id,
+                        displayName = targetApp.displayName,
+                        remainingSessionSeconds = effectiveRemaining,
+                        remainingDailyQuotaSeconds = remainingDailySeconds
+                    )
+                } else if (state.remainingSessionSeconds > 0L) {
+                    // O usuário saiu da sessão anterior antes do tempo acabar e não voltou dentro da janela:
+                    // credita os segundos poupados como Saída Consciente!
+                    creditExpiredBackgroundSession(state, today)
                 }
             }
             is EngineState.InMindfulPause -> {
@@ -153,6 +160,26 @@ class FocusPolicyEngine(
             remainingDailyQuotaSeconds = remainingDailySeconds,
             config = config,
             reward = updatedReward
+        )
+    }
+
+    /**
+     * Chamado quando a tela do dispositivo é desligada (Power Off / Lock Screen),
+     * pausando imediatamente qualquer sessão ativa para não descontar a cota no bolso.
+     */
+    fun onScreenTurnedOff(): InterventionAction = handleExitToNonMonitoredApp()
+
+    private fun creditExpiredBackgroundSession(state: EngineState.InActiveSession, todayEpochDay: Long) {
+        val unusedSeconds = state.remainingSessionSeconds.coerceAtLeast(0L)
+        if (unusedSeconds <= 0L) return
+        val reward = store.getRewardState(todayEpochDay)
+        store.saveRewardState(
+            reward.copy(
+                voluntaryExitsToday = reward.voluntaryExitsToday + 1,
+                totalImpulsesBeaten = reward.totalImpulsesBeaten + 1,
+                reclaimedSecondsToday = reward.reclaimedSecondsToday + unusedSeconds,
+                totalReclaimedSeconds = reward.totalReclaimedSeconds + unusedSeconds
+            )
         )
     }
 

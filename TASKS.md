@@ -37,3 +37,10 @@
 - [x] Task 6.3: [Data] Persistir métricas de reforço positivo e rollover diário da máscara de consistência em `FocusPreferencesStore`
 - [x] Task 6.4: [Overlay & UI] Adicionar celebração háptica na desistência, âncora de hábito, pílula interativa (troca de lado + saída voluntária) e Card de Conquistas na `MainActivity`
 - [x] Task 6.5: [Test] Cobrir o pacote de reforço positivo na suíte unitária JUnit 5
+
+## Milestone 7: v1.2.0 — Otimização Extrema, Polimento & Correção de Bugs
+- [x] Task 7.1: [Bugfix] Pausar sessão imediatamente ao desligar a tela (`PowerManager.isInteractive` + `onScreenTurnedOff`)
+- [x] Task 7.2: [Bugfix] Expandir filtro de pacotes transitórios (`SwiftKey`, `Honeyboard`, `PermissionController`) e creditar saída voluntária quando sessão pausada expira em background
+- [x] Task 7.3: [Perf] Implementar `BatchEditor` (`editBatch`), cache em memória para `AppUsageState`/`FocusRewardState` e singleton `FocusRuntime` compartilhado no processo
+- [x] Task 7.4: [Perf] Eliminar alocações de `GradientDrawable` e `Color.parseColor` no tick de 1 Hz do `OverlayController`
+- [x] Task 7.5: [Build] Migrar `compilerOptions` para Kotlin 2.0 DSL e habilitar compilação Release minificada com R8 (`assembleRelease`)

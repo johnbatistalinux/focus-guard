@@ -16,7 +16,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import com.focusguard.app.data.FocusPreferencesStore
-import com.focusguard.app.data.SharedPreferencesBackend
+import com.focusguard.app.data.FocusRuntime
 import com.focusguard.app.data.SystemTimeProvider
 import com.focusguard.app.domain.FocusConfig
 import com.focusguard.app.domain.FocusPolicyEngine
@@ -50,14 +50,13 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        store = FocusPreferencesStore(SharedPreferencesBackend.create(this))
-        policyEngine = FocusPolicyEngine(store = store, timeProvider = SystemTimeProvider)
+        store = FocusRuntime.getStore(this)
+        policyEngine = FocusRuntime.getEngine(this)
         setContentView(buildRootView())
     }
 
     override fun onResume() {
         super.onResume()
-        store.invalidateConfigCache()
         refreshUi()
     }
 
@@ -74,7 +73,7 @@ class MainActivity : Activity() {
         }
 
         val headerTitle = TextView(this).apply {
-            text = "FocusGuard"
+            text = "FocusGuard v1.2"
             setTextColor(Color.parseColor("#F8FAFC"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
             typeface = Typeface.DEFAULT_BOLD
@@ -207,11 +206,19 @@ class MainActivity : Activity() {
             setPadding(0, dp(10), 0, 0)
         }
 
+        val pillHintText = TextView(this).apply {
+            text = "💡 Na sessão: toque na pílula p/ mudar de lado • segure p/ encerrar com bônus"
+            setTextColor(Color.parseColor("#A7F3D0"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(0, dp(8), 0, 0)
+        }
+
         card.addView(rewardLevelText)
         card.addView(rewardMasteryText)
         card.addView(rewardTimeSavedText)
         card.addView(rewardEquivalentText)
         card.addView(rewardConsistencyText)
+        card.addView(pillHintText)
         return card
     }
 

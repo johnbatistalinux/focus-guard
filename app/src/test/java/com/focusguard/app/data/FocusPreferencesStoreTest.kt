@@ -123,12 +123,34 @@ class FocusPreferencesStoreTest {
         assertEquals(2, nextDayReward.trackedDaysCount)
     }
 
+    @Test
+    fun `grava estado em transacao unica editBatch e serve leituras subsequentes do cache em memoria`() {
+        val batchesBefore = backend.batchTransactionCount
+        store.saveUsageState(
+            AppUsageState(
+                appId = "instagram",
+                epochDay = 20_000L,
+                usedDailySeconds = 45L,
+                cooldownUntilRealtimeMs = 0L,
+                sessionsStartedToday = 1
+            )
+        )
+        assertEquals(batchesBefore + 1, backend.batchTransactionCount)
+
+        // Altera o backend por fora sem invalidar o cache: getUsageState deve retornar a referência em memória
+        backend.putLong("usage_instagram_used_sec", 999L)
+        val cached = store.getUsageState("instagram", 20_000L)
+        assertEquals(45L, cached.usedDailySeconds)
+    }
+
     private class FakeKeyValueBackend : KeyValueBackend {
         private val stringSets = mutableMapOf<String, Set<String>>()
         private val ints = mutableMapOf<String, Int>()
         private val longs = mutableMapOf<String, Long>()
         private val booleans = mutableMapOf<String, Boolean>()
         private val strings = mutableMapOf<String, String>()
+        var batchTransactionCount: Int = 0
+            private set
 
         override fun getStringSet(key: String, defaultValues: Set<String>): Set<String> =
             stringSets[key]?.toSet() ?: defaultValues
@@ -163,6 +185,11 @@ class FocusPreferencesStoreTest {
 
         override fun putString(key: String, value: String) {
             strings[key] = value
+        }
+
+        override fun editBatch(block: BatchEditor.() -> Unit) {
+            batchTransactionCount++
+            super.editBatch(block)
         }
     }
 }

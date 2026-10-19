@@ -2,10 +2,11 @@ package com.focusguard.app.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.Context
+import android.os.PowerManager
 import android.view.accessibility.AccessibilityEvent
 import com.focusguard.app.data.FocusPreferencesStore
-import com.focusguard.app.data.SharedPreferencesBackend
-import com.focusguard.app.data.SystemTimeProvider
+import com.focusguard.app.data.FocusRuntime
 import com.focusguard.app.domain.FocusPolicyEngine
 import com.focusguard.app.domain.InterventionAction
 import com.focusguard.app.domain.SocialAppCatalog
@@ -20,6 +21,7 @@ import com.focusguard.app.domain.SocialAppCatalog
  * 2. Quando uma sessão ou pausa está em andamento, expande temporariamente a escuta de janela
  *    para detectar imediatamente quando o usuário sai para o Launcher ou outro app (ex: WhatsApp),
  *    pausando o cronômetro e removendo o overlay na hora.
+ * 3. Pausa imediatamente a contagem caso a tela do aparelho seja desligada (`!powerManager.isInteractive`).
  */
 class FocusAccessibilityService : AccessibilityService() {
 
@@ -27,13 +29,15 @@ class FocusAccessibilityService : AccessibilityService() {
     private lateinit var policyEngine: FocusPolicyEngine
     private lateinit var overlayController: OverlayController
     private lateinit var ticker: MainThreadTicker
+    private lateinit var powerManager: PowerManager
 
     private var isListeningToAllPackages = false
 
     override fun onCreate() {
         super.onCreate()
-        store = FocusPreferencesStore(SharedPreferencesBackend.create(this))
-        policyEngine = FocusPolicyEngine(store = store, timeProvider = SystemTimeProvider)
+        store = FocusRuntime.getStore(this)
+        policyEngine = FocusRuntime.getEngine(this)
+        powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         overlayController = OverlayController(
             context = this,
             onExitToHomeClicked = ::handleUserExitToHome,
@@ -54,6 +58,8 @@ class FocusAccessibilityService : AccessibilityService() {
             return
         }
         val pkgName = event.packageName?.toString() ?: return
+        if (pkgName == packageName) return
+
         val action = policyEngine.onWindowPackageChanged(pkgName)
         applyInterventionAction(action)
     }
@@ -90,6 +96,11 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private fun handleSecondTick() {
+        if (!powerManager.isInteractive) {
+            val offAction = policyEngine.onScreenTurnedOff()
+            applyInterventionAction(offAction)
+            return
+        }
         val action = policyEngine.onSecondTick()
         applyInterventionAction(action)
     }

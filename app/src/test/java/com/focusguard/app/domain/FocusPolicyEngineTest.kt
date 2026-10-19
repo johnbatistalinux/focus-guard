@@ -30,13 +30,77 @@ class FocusPolicyEngineTest {
     }
 
     @Test
-    fun `ignora aplicativos nao monitorados e pacotes de teclado virtual`() {
+    fun `ignora aplicativos nao monitorados e pacotes de teclado virtual ou dialogos de sistema`() {
         val whatsappAction = engine.onWindowPackageChanged("com.whatsapp")
         assertEquals(InterventionAction.DismissOverlay, whatsappAction)
         assertFalse(engine.shouldRunTicker())
 
         val keyboardAction = engine.onWindowPackageChanged("com.google.android.inputmethod.latin")
         assertEquals(InterventionAction.NoOp, keyboardAction)
+
+        val swiftKeyAction = engine.onWindowPackageChanged("com.touchtype.swiftkey")
+        assertEquals(InterventionAction.NoOp, swiftKeyAction)
+
+        val samsungKeyboardAction = engine.onWindowPackageChanged("com.samsung.android.honeyboard")
+        assertEquals(InterventionAction.NoOp, samsungKeyboardAction)
+
+        val permissionControllerAction = engine.onWindowPackageChanged("com.google.android.permissioncontroller")
+        assertEquals(InterventionAction.NoOp, permissionControllerAction)
+    }
+
+    @Test
+    fun `onScreenTurnedOff pausa a sessao imediatamente impedindo gasto de cota com a tela apagada`() {
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+
+        // Usa por 30 segundos (restam 270s da sessão)
+        repeat(30) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        // Usuário desliga a tela do celular com o Instagram aberto
+        val screenOffAction = engine.onScreenTurnedOff()
+        assertEquals(InterventionAction.DismissOverlay, screenOffAction)
+        assertFalse(engine.shouldRunTicker())
+
+        // Passam 120 segundos com o celular no bolso (não deve descontar nada)
+        fakeTime.advanceSeconds(120)
+        assertEquals(InterventionAction.NoOp, engine.onSecondTick())
+
+        // Usuário liga a tela de volta no Instagram: retoma exatamente de 270s
+        val resumeAction = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowFloatingTimer
+        assertEquals(270L, resumeAction.remainingSessionSeconds)
+    }
+
+    @Test
+    fun `credita saida voluntaria automaticamente quando sessao pausada expira em segundo plano`() {
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession() // 300s
+
+        // Usa apenas 120s (2 min) e sai para a Home (sobram 180s = 3 min não gastos)
+        repeat(120) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onWindowPackageChanged("com.android.launcher3")
+
+        // Fica fora por 10 minutos (600s > graceLimitMs de 300s)
+        fakeTime.advanceSeconds(600)
+
+        // Quando abre o Instagram mais tarde, os 3 min poupados na sessão anterior foram creditados!
+        engine.onWindowPackageChanged("com.instagram.android")
+        val summary = engine.getRewardSummary()
+        assertEquals(1, summary.voluntaryExitsToday)
+        assertEquals(3L, summary.reclaimedMinutesToday)
     }
 
     @Test

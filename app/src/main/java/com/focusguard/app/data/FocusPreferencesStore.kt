@@ -20,6 +20,8 @@ class FocusPreferencesStore(
 ) : FocusPolicyStore {
 
     private var cachedConfig: FocusConfig? = null
+    private val cachedUsageByApp = HashMap<String, AppUsageState>(8)
+    private var cachedRewardState: FocusRewardState? = null
 
     override fun getConfig(): FocusConfig {
         cachedConfig?.let { return it }
@@ -50,25 +52,33 @@ class FocusPreferencesStore(
 
     override fun saveConfig(config: FocusConfig) {
         cachedConfig = config
-        backend.putStringSet(KEY_ENABLED_APP_IDS, config.enabledAppIds)
-        backend.putInt(KEY_MINDFUL_PAUSE_SEC, config.mindfulPauseSeconds)
-        backend.putInt(KEY_SESSION_DURATION_MIN, config.sessionDurationMinutes)
-        backend.putInt(KEY_COOLDOWN_MIN, config.cooldownMinutes)
-        backend.putInt(KEY_DAILY_QUOTA_MIN, config.dailyQuotaMinutes)
-        backend.putBoolean(KEY_PROGRESSIVE_PAUSE_ENABLED, config.progressivePauseEnabled)
-        backend.putString(KEY_SELECTED_ANCHOR_HABIT, config.selectedAnchorHabit)
+        backend.editBatch {
+            putStringSet(KEY_ENABLED_APP_IDS, config.enabledAppIds)
+            putInt(KEY_MINDFUL_PAUSE_SEC, config.mindfulPauseSeconds)
+            putInt(KEY_SESSION_DURATION_MIN, config.sessionDurationMinutes)
+            putInt(KEY_COOLDOWN_MIN, config.cooldownMinutes)
+            putInt(KEY_DAILY_QUOTA_MIN, config.dailyQuotaMinutes)
+            putBoolean(KEY_PROGRESSIVE_PAUSE_ENABLED, config.progressivePauseEnabled)
+            putString(KEY_SELECTED_ANCHOR_HABIT, config.selectedAnchorHabit)
+        }
     }
 
     /**
-     * Força a recarga da configuração a partir do [backend] caso tenha sido alterada pela Activity.
+     * Força a recarga da configuração a partir do [backend] caso tenha sido alterada externamente.
      */
     fun invalidateConfigCache() {
         cachedConfig = null
     }
 
     override fun getUsageState(appId: String, currentEpochDay: Long): AppUsageState {
-        val storedEpochDay = backend.getLong(keyEpochDay(appId), -1L)
-        val storedCooldownMs = backend.getLong(keyCooldownUntil(appId), 0L).coerceAtLeast(0L)
+        val inMemory = cachedUsageByApp[appId]
+        if (inMemory != null && inMemory.epochDay == currentEpochDay) {
+            return inMemory
+        }
+
+        val storedEpochDay = inMemory?.epochDay ?: backend.getLong(keyEpochDay(appId), -1L)
+        val storedCooldownMs = (inMemory?.cooldownUntilRealtimeMs ?: backend.getLong(keyCooldownUntil(appId), 0L))
+            .coerceAtLeast(0L)
 
         // Lazy Daily Reset: se o dia virou (ou nunca foi gravado), zera os segundos consumidos e sessões no dia,
         // mas preserva o cooldown ativo para evitar burla às 23:59 -> 00:00.
@@ -86,28 +96,46 @@ class FocusPreferencesStore(
 
         val usedSeconds = backend.getLong(keyUsedSeconds(appId), 0L).coerceAtLeast(0L)
         val sessionsToday = backend.getInt(keySessionsToday(appId), 0).coerceAtLeast(0)
-        return AppUsageState(
+        val loaded = AppUsageState(
             appId = appId,
             epochDay = storedEpochDay,
             usedDailySeconds = usedSeconds,
             cooldownUntilRealtimeMs = storedCooldownMs,
             sessionsStartedToday = sessionsToday
         )
+        cachedUsageByApp[appId] = loaded
+        return loaded
     }
 
     override fun saveUsageState(state: AppUsageState) {
-        backend.putLong(keyEpochDay(state.appId), state.epochDay)
-        backend.putLong(keyUsedSeconds(state.appId), state.usedDailySeconds.coerceAtLeast(0L))
-        backend.putLong(keyCooldownUntil(state.appId), state.cooldownUntilRealtimeMs.coerceAtLeast(0L))
-        backend.putInt(keySessionsToday(state.appId), state.sessionsStartedToday.coerceAtLeast(0))
+        val sanitized = state.copy(
+            usedDailySeconds = state.usedDailySeconds.coerceAtLeast(0L),
+            cooldownUntilRealtimeMs = state.cooldownUntilRealtimeMs.coerceAtLeast(0L),
+            sessionsStartedToday = state.sessionsStartedToday.coerceAtLeast(0)
+        )
+        cachedUsageByApp[state.appId] = sanitized
+        backend.editBatch {
+            putLong(keyEpochDay(sanitized.appId), sanitized.epochDay)
+            putLong(keyUsedSeconds(sanitized.appId), sanitized.usedDailySeconds)
+            putLong(keyCooldownUntil(sanitized.appId), sanitized.cooldownUntilRealtimeMs)
+            putInt(keySessionsToday(sanitized.appId), sanitized.sessionsStartedToday)
+        }
     }
 
     override fun getRewardState(currentEpochDay: Long): FocusRewardState {
-        val storedEpochDay = backend.getLong(KEY_REWARD_EPOCH_DAY, -1L)
-        val totalReclaimed = backend.getLong(KEY_REWARD_TOTAL_RECLAIMED_SEC, 0L).coerceAtLeast(0L)
-        val totalBeaten = backend.getInt(KEY_REWARD_TOTAL_IMPULSES_BEATEN, 0).coerceAtLeast(0)
-        val storedMask = backend.getLong(KEY_REWARD_CONSISTENCY_MASK, 1L)
-        val storedTrackedDays = backend.getInt(KEY_REWARD_TRACKED_DAYS, 1).coerceIn(1, 62)
+        val inMemory = cachedRewardState
+        if (inMemory != null && inMemory.epochDay == currentEpochDay) {
+            return inMemory
+        }
+
+        val storedEpochDay = inMemory?.epochDay ?: backend.getLong(KEY_REWARD_EPOCH_DAY, -1L)
+        val totalReclaimed = (inMemory?.totalReclaimedSeconds ?: backend.getLong(KEY_REWARD_TOTAL_RECLAIMED_SEC, 0L))
+            .coerceAtLeast(0L)
+        val totalBeaten = (inMemory?.totalImpulsesBeaten ?: backend.getInt(KEY_REWARD_TOTAL_IMPULSES_BEATEN, 0))
+            .coerceAtLeast(0)
+        val storedMask = inMemory?.consistencyBitmask ?: backend.getLong(KEY_REWARD_CONSISTENCY_MASK, 1L)
+        val storedTrackedDays = (inMemory?.trackedDaysCount ?: backend.getInt(KEY_REWARD_TRACKED_DAYS, 1))
+            .coerceIn(1, 62)
 
         if (storedEpochDay == -1L) {
             val initial = FocusRewardState(
@@ -143,7 +171,7 @@ class FocusPreferencesStore(
             return rolledOver
         }
 
-        return FocusRewardState(
+        val loaded = FocusRewardState(
             epochDay = storedEpochDay,
             attemptsToday = backend.getInt(KEY_REWARD_ATTEMPTS_TODAY, 0).coerceAtLeast(0),
             abortedToday = backend.getInt(KEY_REWARD_ABORTED_TODAY, 0).coerceAtLeast(0),
@@ -154,18 +182,32 @@ class FocusPreferencesStore(
             consistencyBitmask = storedMask,
             trackedDaysCount = storedTrackedDays
         )
+        cachedRewardState = loaded
+        return loaded
     }
 
     override fun saveRewardState(state: FocusRewardState) {
-        backend.putLong(KEY_REWARD_EPOCH_DAY, state.epochDay)
-        backend.putInt(KEY_REWARD_ATTEMPTS_TODAY, state.attemptsToday.coerceAtLeast(0))
-        backend.putInt(KEY_REWARD_ABORTED_TODAY, state.abortedToday.coerceAtLeast(0))
-        backend.putInt(KEY_REWARD_VOLUNTARY_EXITS_TODAY, state.voluntaryExitsToday.coerceAtLeast(0))
-        backend.putLong(KEY_REWARD_RECLAIMED_TODAY_SEC, state.reclaimedSecondsToday.coerceAtLeast(0L))
-        backend.putLong(KEY_REWARD_TOTAL_RECLAIMED_SEC, state.totalReclaimedSeconds.coerceAtLeast(0L))
-        backend.putInt(KEY_REWARD_TOTAL_IMPULSES_BEATEN, state.totalImpulsesBeaten.coerceAtLeast(0))
-        backend.putLong(KEY_REWARD_CONSISTENCY_MASK, state.consistencyBitmask)
-        backend.putInt(KEY_REWARD_TRACKED_DAYS, state.trackedDaysCount.coerceIn(1, 62))
+        val sanitized = state.copy(
+            attemptsToday = state.attemptsToday.coerceAtLeast(0),
+            abortedToday = state.abortedToday.coerceAtLeast(0),
+            voluntaryExitsToday = state.voluntaryExitsToday.coerceAtLeast(0),
+            reclaimedSecondsToday = state.reclaimedSecondsToday.coerceAtLeast(0L),
+            totalReclaimedSeconds = state.totalReclaimedSeconds.coerceAtLeast(0L),
+            totalImpulsesBeaten = state.totalImpulsesBeaten.coerceAtLeast(0),
+            trackedDaysCount = state.trackedDaysCount.coerceIn(1, 62)
+        )
+        cachedRewardState = sanitized
+        backend.editBatch {
+            putLong(KEY_REWARD_EPOCH_DAY, sanitized.epochDay)
+            putInt(KEY_REWARD_ATTEMPTS_TODAY, sanitized.attemptsToday)
+            putInt(KEY_REWARD_ABORTED_TODAY, sanitized.abortedToday)
+            putInt(KEY_REWARD_VOLUNTARY_EXITS_TODAY, sanitized.voluntaryExitsToday)
+            putLong(KEY_REWARD_RECLAIMED_TODAY_SEC, sanitized.reclaimedSecondsToday)
+            putLong(KEY_REWARD_TOTAL_RECLAIMED_SEC, sanitized.totalReclaimedSeconds)
+            putInt(KEY_REWARD_TOTAL_IMPULSES_BEATEN, sanitized.totalImpulsesBeaten)
+            putLong(KEY_REWARD_CONSISTENCY_MASK, sanitized.consistencyBitmask)
+            putInt(KEY_REWARD_TRACKED_DAYS, sanitized.trackedDaysCount)
+        }
     }
 
     private fun keyEpochDay(appId: String): String = "usage_${appId}_epoch_day"
