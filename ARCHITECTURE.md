@@ -97,18 +97,17 @@ O projeto segue separação estrita em pacote único com 4 subpacotes coesos:
 - `com.focusguard.app/`
   - `domain/` *(100% Kotlin puro, testável na JVM sem emulador)*
     - `SocialAppCatalog.kt` — Definição imutável das redes sociais suportadas.
-    - `FocusConfig.kt` — Modelo de configuração (tempos de pausa, sessão, cooldown, cota diária e pacotes ativos).
-    - `AppUsageState.kt` — Estado diário e de cooldown de cada pacote.
-    - `FocusPolicyEngine.kt` — Máquina de estados pura que recebe `(packageName, nowEpochMs, todayEpochDay)` e retorna a `InterventionAction`.
-    - `TimeProvider.kt` — Interface para injeção de tempo monotônico e calendário local nos testes.
+    - `FocusModels.kt` — Modelos `FocusConfig`, `AppUsageState`, `FocusRewardState`, `FocusRewardSummary` e `InterventionAction`.
+    - `FocusPolicyEngine.kt` — Máquina de estados pura (Pausa Progressiva, Guia de Respiração 1 Hz, Micro-Sessão de 1 min, Bônus de Saída Voluntária e Consistência em Bitmask).
+    - `TimeProvider.kt` — Interface para injeção de tempo monotônico, calendário local e contrato `FocusPolicyStore`.
   - `data/`
-    - `FocusPreferencesStore.kt` — Implementação enxuta sobre `SharedPreferences` com *lazy daily reset*.
+    - `FocusPreferencesStore.kt` — Implementação enxuta sobre `SharedPreferences` com *lazy daily reset* e rollover de `consistencyBitmask`.
   - `service/`
     - `FocusAccessibilityService.kt` — Serviço de acessibilidade do Android; gerencia o ciclo de vida, filtro `packageNames` e `GLOBAL_ACTION_HOME`.
-    - `OverlayController.kt` — Constrói e gerencia as Views nativas no `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`) reciclando instâncias quando necessário e desanexando imediatamente ao sair.
+    - `OverlayController.kt` — Constrói e gerencia as Views nativas no `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`) com celebração háptica, botão de micro-sessão e pílula flutuante interativa (toque simples muda de canto, toque longo encerra cedo com bônus).
     - `MainThreadTicker.kt` — Wrapper sobre `Handler(Looper.getMainLooper())` para contagem regressiva sem alocação de coroutines.
   - `ui/`
-    - `MainActivity.kt` — Tela de configuração construída com Views nativas (`ScrollView`, `LinearLayout`, `Switch`, `TextView`, `Button`), exibindo consumo do dia e aplicando a trava anti-sabotagem.
+    - `MainActivity.kt` — Tela de configuração construída com Views nativas, Card de Conquistas & Reforço Positivo e trava anti-sabotagem.
 
 ---
 

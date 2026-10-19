@@ -2,7 +2,9 @@ package com.focusguard.app.data
 
 import com.focusguard.app.domain.AppUsageState
 import com.focusguard.app.domain.FocusConfig
+import com.focusguard.app.domain.FocusRewardState
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -25,6 +27,8 @@ class FocusPreferencesStoreTest {
         assertEquals(5, config.sessionDurationMinutes)
         assertEquals(10, config.cooldownMinutes)
         assertEquals(30, config.dailyQuotaMinutes)
+        assertTrue(config.progressivePauseEnabled)
+        assertEquals(FocusConfig.DEFAULT_ANCHOR_HABIT, config.selectedAnchorHabit)
     }
 
     @Test
@@ -34,7 +38,9 @@ class FocusPreferencesStoreTest {
             mindfulPauseSeconds = 15,
             sessionDurationMinutes = 10,
             cooldownMinutes = 20,
-            dailyQuotaMinutes = 45
+            dailyQuotaMinutes = 45,
+            progressivePauseEnabled = false,
+            selectedAnchorHabit = "Beber um copo d'água 💧"
         )
         store.saveConfig(custom)
         store.invalidateConfigCache()
@@ -58,35 +64,71 @@ class FocusPreferencesStoreTest {
     }
 
     @Test
-    fun `lazy daily reset zera uso diario na virada do epochDay mas preserva cooldown ativo`() {
+    fun `lazy daily reset zera uso diario e sessoes na virada do epochDay mas preserva cooldown ativo`() {
         val day1 = 20_000L
         val day2 = 20_001L
 
-        // No dia 1, o usuário consumiu 1200s (20 min) e entrou em cooldown até 500_000ms
+        // No dia 1, o usuário consumiu 1200s (20 min), iniciou 3 sessões e entrou em cooldown até 500_000ms
         store.saveUsageState(
             AppUsageState(
                 appId = "instagram",
                 epochDay = day1,
                 usedDailySeconds = 1200L,
-                cooldownUntilRealtimeMs = 500_000L
+                cooldownUntilRealtimeMs = 500_000L,
+                sessionsStartedToday = 3
             )
         )
 
         val sameDayState = store.getUsageState("instagram", day1)
         assertEquals(1200L, sameDayState.usedDailySeconds)
         assertEquals(500_000L, sameDayState.cooldownUntilRealtimeMs)
+        assertEquals(3, sameDayState.sessionsStartedToday)
 
-        // Virou meia-noite (day2): o tempo usado hoje zera, mas o cooldown das 23:58 continua valendo
+        // Virou meia-noite (day2): o tempo usado hoje e as sessões zeram, mas o cooldown das 23:58 continua valendo
         val nextDayState = store.getUsageState("instagram", day2)
         assertEquals(day2, nextDayState.epochDay)
         assertEquals(0L, nextDayState.usedDailySeconds)
+        assertEquals(0, nextDayState.sessionsStartedToday)
         assertEquals(500_000L, nextDayState.cooldownUntilRealtimeMs)
+    }
+
+    @Test
+    fun `rollover do FocusRewardState desloca mascara de consistencia e preserva acumulados vitalicios`() {
+        val day1 = 20_000L
+        val day2 = 20_001L
+
+        store.saveRewardState(
+            FocusRewardState(
+                epochDay = day1,
+                attemptsToday = 5,
+                abortedToday = 4,
+                voluntaryExitsToday = 1,
+                reclaimedSecondsToday = 1200L,
+                totalReclaimedSeconds = 3600L,
+                totalImpulsesBeaten = 12,
+                consistencyBitmask = 1L,
+                trackedDaysCount = 1
+            )
+        )
+
+        val nextDayReward = store.getRewardState(day2)
+        assertEquals(day2, nextDayReward.epochDay)
+        assertEquals(0, nextDayReward.attemptsToday)
+        assertEquals(0, nextDayReward.abortedToday)
+        assertEquals(0, nextDayReward.voluntaryExitsToday)
+        assertEquals(0L, nextDayReward.reclaimedSecondsToday)
+        assertEquals(3600L, nextDayReward.totalReclaimedSeconds)
+        assertEquals(12, nextDayReward.totalImpulsesBeaten)
+        assertEquals(0b11L, nextDayReward.consistencyBitmask)
+        assertEquals(2, nextDayReward.trackedDaysCount)
     }
 
     private class FakeKeyValueBackend : KeyValueBackend {
         private val stringSets = mutableMapOf<String, Set<String>>()
         private val ints = mutableMapOf<String, Int>()
         private val longs = mutableMapOf<String, Long>()
+        private val booleans = mutableMapOf<String, Boolean>()
+        private val strings = mutableMapOf<String, String>()
 
         override fun getStringSet(key: String, defaultValues: Set<String>): Set<String> =
             stringSets[key]?.toSet() ?: defaultValues
@@ -107,6 +149,20 @@ class FocusPreferencesStoreTest {
 
         override fun putLong(key: String, value: Long) {
             longs[key] = value
+        }
+
+        override fun getBoolean(key: String, defaultValue: Boolean): Boolean =
+            booleans[key] ?: defaultValue
+
+        override fun putBoolean(key: String, value: Boolean) {
+            booleans[key] = value
+        }
+
+        override fun getString(key: String, defaultValue: String): String =
+            strings[key] ?: defaultValue
+
+        override fun putString(key: String, value: String) {
+            strings[key] = value
         }
     }
 }

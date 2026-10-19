@@ -5,10 +5,10 @@ package com.focusguard.app.domain
  *
  * Responsável por:
  * 1. Avaliar aberturas de pacotes e filtrar eventos transitórios (teclados/IME, SystemUI).
- * 2. Conduzir a Pausa Consciente (ex: 10s) antes de permitir o uso.
- * 3. Controlar a Sessão Ativa (ex: 5 min) com pausa automática caso o usuário saia do app.
- * 4. Acionar o Cooldown pós-sessão (ex: 10 min) e respeitar a Cota Diária (ex: 30 min).
- * 5. Determinar se a Trava Anti-Sabotagem nas configurações está ativa.
+ * 2. Conduzir a Pausa Consciente (com Pausa Progressiva e Guia de Respiração 1 Hz).
+ * 3. Controlar a Sessão Ativa (Completa ou Micro-Sessão de 1 min) com pausa automática ao sair.
+ * 4. Contabilizar Reforço Positivo (Impulsos Vencidos, Tempo Resgatado, Bônus de Saída Voluntária e Consistência).
+ * 5. Acionar o Cooldown pós-sessão e respeitar a Cota Diária e a Trava Anti-Sabotagem.
  */
 class FocusPolicyEngine(
     private val store: FocusPolicyStore,
@@ -26,7 +26,9 @@ class FocusPolicyEngine(
 
         data class InActiveSession(
             val app: TargetApp,
+            val initialSessionSeconds: Long,
             val remainingSessionSeconds: Long,
+            val isQuickMicroSession: Boolean = false,
             val isPausedInBackground: Boolean = false,
             val pausedAtRealtimeMs: Long = 0L
         ) : EngineState
@@ -76,6 +78,7 @@ class FocusPolicyEngine(
         // 1. Verifica se a Cota Diária já esgotou
         val remainingDailySeconds = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
         if (remainingDailySeconds <= 0L) {
+            markTodayQuotaExceededInReward(today)
             currentState = EngineState.InHardBlock(targetApp, BlockReason.DAILY_QUOTA_EXCEEDED)
             return InterventionAction.ShowHardBlock(
                 appId = targetApp.id,
@@ -121,34 +124,45 @@ class FocusPolicyEngine(
             }
             is EngineState.InMindfulPause -> {
                 if (state.app.id == targetApp.id) {
-                    return InterventionAction.ShowMindfulPause(
-                        appId = targetApp.id,
-                        displayName = targetApp.displayName,
+                    val reward = store.getRewardState(today)
+                    val ready = state.remainingSeconds <= 0
+                    return buildMindfulPauseAction(
+                        app = targetApp,
                         remainingPauseSeconds = state.remainingSeconds,
-                        readyToStartSession = state.remainingSeconds <= 0,
-                        remainingDailyQuotaSeconds = remainingDailySeconds
+                        readyToStartSession = ready,
+                        remainingDailyQuotaSeconds = remainingDailySeconds,
+                        config = config,
+                        reward = reward
                     )
                 }
             }
             else -> Unit
         }
 
-        // 4. Inicia nova Pausa Consciente
-        val initialPause = config.mindfulPauseSeconds
+        // 4. Inicia nova Pausa Consciente (com incremento de tentativa do dia e Pausa Progressiva)
+        val currentReward = store.getRewardState(today)
+        val updatedReward = currentReward.copy(attemptsToday = currentReward.attemptsToday + 1)
+        store.saveRewardState(updatedReward)
+
+        val initialPause = computeProgressivePauseSeconds(config, usage.sessionsStartedToday)
         currentState = EngineState.InMindfulPause(targetApp, initialPause)
-        return InterventionAction.ShowMindfulPause(
-            appId = targetApp.id,
-            displayName = targetApp.displayName,
+        return buildMindfulPauseAction(
+            app = targetApp,
             remainingPauseSeconds = initialPause,
             readyToStartSession = false,
-            remainingDailyQuotaSeconds = remainingDailySeconds
+            remainingDailyQuotaSeconds = remainingDailySeconds,
+            config = config,
+            reward = updatedReward
         )
     }
 
     /**
      * Chamado quando o usuário confirma o início da sessão após concluir a Pausa Consciente.
+     *
+     * @param isQuickMicroSession Se verdadeiro, inicia uma Micro-Sessão rápida de 1 minuto (60s)
+     *                            para responder mensagens sem cair no feed.
      */
-    fun onConfirmStartSession(): InterventionAction {
+    fun onConfirmStartSession(isQuickMicroSession: Boolean = false): InterventionAction {
         val state = currentState
         if (state !is EngineState.InMindfulPause || state.remainingSeconds > 0) {
             return InterventionAction.NoOp
@@ -161,6 +175,7 @@ class FocusPolicyEngine(
         val remainingDailySeconds = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
 
         if (remainingDailySeconds <= 0L) {
+            markTodayQuotaExceededInReward(today)
             currentState = EngineState.InHardBlock(state.app, BlockReason.DAILY_QUOTA_EXCEEDED)
             return InterventionAction.ShowHardBlock(
                 appId = state.app.id,
@@ -170,10 +185,20 @@ class FocusPolicyEngine(
             )
         }
 
-        val sessionSeconds = minOf(config.sessionDurationSeconds, remainingDailySeconds)
+        store.saveUsageState(usage.copy(sessionsStartedToday = usage.sessionsStartedToday + 1))
+
+        val requestedSeconds = if (isQuickMicroSession) {
+            minOf(QUICK_MICRO_SESSION_SECONDS, config.sessionDurationSeconds)
+        } else {
+            config.sessionDurationSeconds
+        }
+        val sessionSeconds = minOf(requestedSeconds, remainingDailySeconds)
+
         currentState = EngineState.InActiveSession(
             app = state.app,
+            initialSessionSeconds = sessionSeconds,
             remainingSessionSeconds = sessionSeconds,
+            isQuickMicroSession = isQuickMicroSession,
             isPausedInBackground = false
         )
 
@@ -186,13 +211,73 @@ class FocusPolicyEngine(
     }
 
     /**
-     * Chamado quando o usuário clica em "Fechar e voltar à Home" durante a pausa ou bloqueio.
+     * Chamado quando o usuário clica no botão verde de desistência consciente durante a pausa ou bloqueio.
+     * Contabiliza Reforço Positivo (+1 impulso vencido e +N minutos resgatados) quando acionado na Pausa Consciente.
      */
     fun onUserAborted(): InterventionAction {
         val state = currentState
-        if (state is EngineState.InMindfulPause || state is EngineState.InHardBlock) {
+        if (state is EngineState.InMindfulPause) {
+            val config = store.getConfig()
+            val today = timeProvider.currentEpochDay()
+            val reward = store.getRewardState(today)
+            val savedSec = config.sessionDurationSeconds
+            store.saveRewardState(
+                reward.copy(
+                    abortedToday = reward.abortedToday + 1,
+                    totalImpulsesBeaten = reward.totalImpulsesBeaten + 1,
+                    reclaimedSecondsToday = reward.reclaimedSecondsToday + savedSec,
+                    totalReclaimedSeconds = reward.totalReclaimedSeconds + savedSec
+                )
+            )
+            currentState = EngineState.Idle
+        } else if (state is EngineState.InHardBlock) {
             currentState = EngineState.Idle
         }
+        return InterventionAction.DismissOverlay
+    }
+
+    /**
+     * Chamado quando o usuário encerra voluntariamente uma sessão ativa antes do cronômetro zerar
+     * (ex: toque longo na pílula flutuante).
+     *
+     * Concede o Bônus de Saída Voluntária:
+     * - Soma os segundos restantes da sessão ao Tempo Resgatado.
+     * - Incrementa `voluntaryExitsToday` e `totalImpulsesBeaten`.
+     * - Reduz o Cooldown pós-sessão pela metade (ou zera o Cooldown se o uso foi < 60s).
+     */
+    fun onUserEndedSessionEarly(): InterventionAction {
+        val state = currentState
+        if (state !is EngineState.InActiveSession) {
+            return InterventionAction.NoOp
+        }
+
+        val config = store.getConfig()
+        val nowMs = timeProvider.elapsedRealtimeMs()
+        val today = timeProvider.currentEpochDay()
+        val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
+
+        val unusedSeconds = state.remainingSessionSeconds.coerceAtLeast(0L)
+        val elapsedSessionSeconds = (state.initialSessionSeconds - unusedSeconds).coerceAtLeast(0L)
+
+        val reward = store.getRewardState(today)
+        store.saveRewardState(
+            reward.copy(
+                voluntaryExitsToday = reward.voluntaryExitsToday + 1,
+                totalImpulsesBeaten = reward.totalImpulsesBeaten + 1,
+                reclaimedSecondsToday = reward.reclaimedSecondsToday + unusedSeconds,
+                totalReclaimedSeconds = reward.totalReclaimedSeconds + unusedSeconds
+            )
+        )
+
+        val discountedCooldownMs = if (elapsedSessionSeconds < QUICK_MICRO_SESSION_SECONDS) {
+            0L
+        } else {
+            (config.cooldownSeconds * 1000L) / 2L
+        }
+        val cooldownUntil = if (discountedCooldownMs > 0L) nowMs + discountedCooldownMs else 0L
+        store.saveUsageState(usage.copy(cooldownUntilRealtimeMs = cooldownUntil))
+
+        currentState = EngineState.Idle
         return InterventionAction.DismissOverlay
     }
 
@@ -212,13 +297,16 @@ class FocusPolicyEngine(
                 val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
                 val remainingDaily = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
                 val nextSec = (state.remainingSeconds - 1).coerceAtLeast(0)
+                val ready = nextSec == 0
+                val reward = store.getRewardState(today)
                 currentState = state.copy(remainingSeconds = nextSec)
-                InterventionAction.ShowMindfulPause(
-                    appId = state.app.id,
-                    displayName = state.app.displayName,
+                buildMindfulPauseAction(
+                    app = state.app,
                     remainingPauseSeconds = nextSec,
-                    readyToStartSession = nextSec == 0,
-                    remainingDailyQuotaSeconds = remainingDaily
+                    readyToStartSession = ready,
+                    remainingDailyQuotaSeconds = remainingDaily,
+                    config = config,
+                    reward = reward
                 )
             }
 
@@ -232,15 +320,23 @@ class FocusPolicyEngine(
                 val newRemainingSession = state.remainingSessionSeconds - 1L
                 val newRemainingDaily = (config.dailyQuotaSeconds - newUsedDaily).coerceAtLeast(0L)
 
-                // Se a sessão de 5 min acabou OU a cota diária acabou neste segundo
+                // Se a sessão acabou OU a cota diária acabou neste segundo
                 if (newRemainingSession <= 0L || newRemainingDaily <= 0L) {
-                    val cooldownUntil = nowMs + (config.cooldownSeconds * 1000L)
+                    val cooldownDurationMs = if (state.isQuickMicroSession && newRemainingDaily > 0L) {
+                        (config.cooldownSeconds * 1000L) / 2L
+                    } else {
+                        config.cooldownSeconds * 1000L
+                    }
+                    val cooldownUntil = nowMs + cooldownDurationMs
                     store.saveUsageState(
                         usage.copy(
                             usedDailySeconds = newUsedDaily,
                             cooldownUntilRealtimeMs = cooldownUntil
                         )
                     )
+                    if (newRemainingDaily <= 0L) {
+                        markTodayQuotaExceededInReward(today)
+                    }
                     currentState = EngineState.Idle
                     val reason = if (newRemainingDaily <= 0L) {
                         BlockReason.DAILY_QUOTA_EXCEEDED
@@ -272,15 +368,20 @@ class FocusPolicyEngine(
                 val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
                 if (usage.cooldownUntilRealtimeMs <= nowMs) {
                     // Cooldown acabou! Transiciona direto para a Pausa Consciente
-                    val initialPause = config.mindfulPauseSeconds
+                    val currentReward = store.getRewardState(today)
+                    val updatedReward = currentReward.copy(attemptsToday = currentReward.attemptsToday + 1)
+                    store.saveRewardState(updatedReward)
+
+                    val initialPause = computeProgressivePauseSeconds(config, usage.sessionsStartedToday)
                     val remainingDaily = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
                     currentState = EngineState.InMindfulPause(state.app, initialPause)
-                    InterventionAction.ShowMindfulPause(
-                        appId = state.app.id,
-                        displayName = state.app.displayName,
+                    buildMindfulPauseAction(
+                        app = state.app,
                         remainingPauseSeconds = initialPause,
                         readyToStartSession = false,
-                        remainingDailyQuotaSeconds = remainingDaily
+                        remainingDailyQuotaSeconds = remainingDaily,
+                        config = config,
+                        reward = updatedReward
                     )
                 } else {
                     val remainingCooldownSec = ((usage.cooldownUntilRealtimeMs - nowMs + 999L) / 1000L)
@@ -293,6 +394,56 @@ class FocusPolicyEngine(
                 }
             }
         }
+    }
+
+    /**
+     * Retorna o resumo consolidado de Reforço Positivo e Consistência para exibição na UI.
+     */
+    fun getRewardSummary(): FocusRewardSummary {
+        val today = timeProvider.currentEpochDay()
+        val reward = store.getRewardState(today)
+
+        val masteryPct = if (reward.attemptsToday > 0) {
+            ((reward.abortedToday * 100) / reward.attemptsToday).coerceIn(0, 100)
+        } else {
+            100
+        }
+
+        val reclaimedMinToday = reward.reclaimedSecondsToday / 60L
+        val totalReclaimedMin = reward.totalReclaimedSeconds / 60L
+
+        val windowDays = reward.trackedDaysCount.coerceIn(1, 14)
+        var daysWithinQuota = 0
+        for (bitIndex in 0 until windowDays) {
+            if (((reward.consistencyBitmask ushr bitIndex) and 1L) == 1L) {
+                daysWithinQuota++
+            }
+        }
+        val consistencyPct = ((daysWithinQuota * 100) / windowDays).coerceIn(0, 100)
+
+        val dotsBuilder = StringBuilder()
+        for (bitIndex in 6 downTo 0) {
+            if (dotsBuilder.isNotEmpty()) dotsBuilder.append(' ')
+            val symbol = when {
+                bitIndex >= reward.trackedDaysCount -> '·'
+                ((reward.consistencyBitmask ushr bitIndex) and 1L) == 1L -> '●'
+                else -> '○'
+            }
+            dotsBuilder.append(symbol)
+        }
+
+        return FocusRewardSummary(
+            attemptsToday = reward.attemptsToday,
+            abortedToday = reward.abortedToday,
+            voluntaryExitsToday = reward.voluntaryExitsToday,
+            masteryPercentToday = masteryPct,
+            reclaimedMinutesToday = reclaimedMinToday,
+            totalReclaimedMinutes = totalReclaimedMin,
+            tangibleEquivalentText = formatTangibleEquivalent(totalReclaimedMin),
+            focusLevelTitle = formatFocusLevelTitle(reward.totalImpulsesBeaten),
+            last7DaysDots = dotsBuilder.toString(),
+            consistencySummaryText = "$daysWithinQuota dos últimos $windowDays dias dentro da meta ($consistencyPct%)"
+        )
     }
 
     /**
@@ -335,6 +486,93 @@ class FocusPolicyEngine(
         is EngineState.InHardBlock -> state.reason == BlockReason.COOLDOWN_ACTIVE
     }
 
+    private fun computeProgressivePauseSeconds(config: FocusConfig, sessionsStartedToday: Int): Int {
+        val base = config.mindfulPauseSeconds
+        if (!config.progressivePauseEnabled || sessionsStartedToday <= 0) {
+            return base
+        }
+        val extra = sessionsStartedToday * PROGRESSIVE_PAUSE_STEP_SECONDS
+        val cap = maxOf(base, MAX_PROGRESSIVE_PAUSE_SECONDS)
+        return (base + extra).coerceAtMost(cap)
+    }
+
+    private fun buildMindfulPauseAction(
+        app: TargetApp,
+        remainingPauseSeconds: Int,
+        readyToStartSession: Boolean,
+        remainingDailyQuotaSeconds: Long,
+        config: FocusConfig,
+        reward: FocusRewardState
+    ): InterventionAction.ShowMindfulPause {
+        val allowMicro = readyToStartSession &&
+            remainingDailyQuotaSeconds >= QUICK_MICRO_SESSION_SECONDS &&
+            config.sessionDurationMinutes > 1
+
+        return InterventionAction.ShowMindfulPause(
+            appId = app.id,
+            displayName = app.displayName,
+            remainingPauseSeconds = remainingPauseSeconds,
+            readyToStartSession = readyToStartSession,
+            remainingDailyQuotaSeconds = remainingDailyQuotaSeconds,
+            breathingCue = computeBreathingCue(remainingPauseSeconds, readyToStartSession),
+            anchorActionLabel = "Fechar e ir: ${config.selectedAnchorHabit}",
+            rewardBannerText = formatOverlayRewardBanner(reward),
+            reclaimedMinutesOnAbort = config.sessionDurationMinutes,
+            allowQuickMicroSession = allowMicro
+        )
+    }
+
+    private fun computeBreathingCue(remainingSeconds: Int, readyToStart: Boolean): String {
+        if (readyToStart || remainingSeconds <= 0) {
+            return "Pausa concluída. Você realmente precisa entrar agora?"
+        }
+        return when (remainingSeconds % 10) {
+            9, 8, 7, 0 -> "🌬️ Inspire profundamente pelo nariz..."
+            6, 5 -> "⏸️ Segure o ar por um instante..."
+            else -> "🍃 Expire devagar soltando o impulso..."
+        }
+    }
+
+    private fun formatOverlayRewardBanner(reward: FocusRewardState): String {
+        val savedMinToday = reward.reclaimedSecondsToday / 60L
+        if (reward.abortedToday == 0 && reward.voluntaryExitsToday == 0) {
+            return "🌱 Foco Consciente: feche agora para resgatar os primeiros minutos do dia"
+        }
+        val masteryPct = if (reward.attemptsToday > 0) {
+            ((reward.abortedToday * 100) / reward.attemptsToday).coerceIn(0, 100)
+        } else {
+            100
+        }
+        return "🛡️ ${reward.abortedToday}/${reward.attemptsToday} impulsos vencidos hoje ($masteryPct%) • +${savedMinToday} min resgatados"
+    }
+
+    private fun formatTangibleEquivalent(totalReclaimedMinutes: Long): String {
+        if (totalReclaimedMinutes <= 0L) {
+            return "Cada desistência na porta converte tempo de feed em vida real."
+        }
+        val approxPages = (totalReclaimedMinutes / 2L).coerceAtLeast(1L)
+        val walks = totalReclaimedMinutes / 15L
+        return if (walks >= 1L) {
+            "Equivale a ~$approxPages páginas lidas 📖 ou $walks caminhada(s) de 15 min 🚶"
+        } else {
+            "Equivale a ~$approxPages páginas de um livro lidas 📖"
+        }
+    }
+
+    private fun formatFocusLevelTitle(totalImpulsesBeaten: Int): String = when {
+        totalImpulsesBeaten >= 150 -> "Mestre do Próprio Tempo 🏆"
+        totalImpulsesBeaten >= 50 -> "Mente Blindada 💎"
+        totalImpulsesBeaten >= 10 -> "Guardião da Atenção 🛡️"
+        else -> "Iniciante Consciente 🌱"
+    }
+
+    private fun markTodayQuotaExceededInReward(todayEpochDay: Long) {
+        val reward = store.getRewardState(todayEpochDay)
+        if ((reward.consistencyBitmask and 1L) != 0L) {
+            store.saveRewardState(reward.copy(consistencyBitmask = reward.consistencyBitmask and -2L))
+        }
+    }
+
     private fun handleExitToNonMonitoredApp(): InterventionAction {
         when (val state = currentState) {
             is EngineState.InActiveSession -> {
@@ -369,6 +607,12 @@ class FocusPolicyEngine(
             return fixed
         }
         return raw
+    }
+
+    companion object {
+        private const val PROGRESSIVE_PAUSE_STEP_SECONDS = 5
+        private const val MAX_PROGRESSIVE_PAUSE_SECONDS = 60
+        private const val QUICK_MICRO_SESSION_SECONDS = 60L
     }
 }
 

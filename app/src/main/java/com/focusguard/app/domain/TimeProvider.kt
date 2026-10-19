@@ -17,11 +17,13 @@ interface TimeProvider {
 }
 
 /**
- * Contrato de leitura/escrita de configurações e estado de uso.
+ * Contrato de leitura/escrita de configurações, estado de uso e reforço positivo.
  */
 interface FocusPolicyStore {
     fun getConfig(): FocusConfig
     fun saveConfig(config: FocusConfig)
     fun getUsageState(appId: String, currentEpochDay: Long): AppUsageState
     fun saveUsageState(state: AppUsageState)
+    fun getRewardState(currentEpochDay: Long): FocusRewardState
+    fun saveRewardState(state: FocusRewardState)
 }

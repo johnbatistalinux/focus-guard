@@ -38,6 +38,13 @@ class MainActivity : Activity() {
     private lateinit var serviceStatusText: TextView
     private lateinit var serviceActionBtn: Button
     private lateinit var lockBannerText: TextView
+
+    private lateinit var rewardLevelText: TextView
+    private lateinit var rewardMasteryText: TextView
+    private lateinit var rewardTimeSavedText: TextView
+    private lateinit var rewardEquivalentText: TextView
+    private lateinit var rewardConsistencyText: TextView
+
     private lateinit var appsContainer: LinearLayout
     private lateinit var paramsContainer: LinearLayout
 
@@ -114,6 +121,13 @@ class MainActivity : Activity() {
         serviceCard.addView(serviceStatusText)
         serviceCard.addView(serviceActionBtn, btnMargin)
 
+        // Card de Conquistas & Reforço Positivo
+        val rewardCard = buildRewardCard()
+        val rewardCardMargin = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(14) }
+
         // Banner da Trava Anti-Sabotagem
         lockBannerText = TextView(this).apply {
             setTextColor(Color.parseColor("#FECACA"))
@@ -134,7 +148,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
 
-        val paramsHeader = sectionHeader("Parâmetros de Intervenção")
+        val paramsHeader = sectionHeader("Parâmetros de Intervenção & Reforço")
         paramsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -142,6 +156,7 @@ class MainActivity : Activity() {
         content.addView(headerTitle)
         content.addView(headerSubtitle)
         content.addView(serviceCard)
+        content.addView(rewardCard, rewardCardMargin)
         content.addView(lockBannerText, lockParams)
         content.addView(appsHeader)
         content.addView(appsContainer)
@@ -150,6 +165,54 @@ class MainActivity : Activity() {
 
         scrollView.addView(content)
         return scrollView
+    }
+
+    private fun buildRewardCard(): View {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardBackground("#062E22", "#059669")
+            val pad = dp(16)
+            setPadding(pad, pad, pad, pad)
+        }
+
+        rewardLevelText = TextView(this).apply {
+            setTextColor(Color.parseColor("#34D399"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        rewardMasteryText = TextView(this).apply {
+            setTextColor(Color.parseColor("#ECFDF5"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setPadding(0, dp(6), 0, 0)
+        }
+
+        rewardTimeSavedText = TextView(this).apply {
+            setTextColor(Color.parseColor("#A7F3D0"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(6), 0, 0)
+        }
+
+        rewardEquivalentText = TextView(this).apply {
+            setTextColor(Color.parseColor("#6EE7B7"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, dp(2), 0, 0)
+        }
+
+        rewardConsistencyText = TextView(this).apply {
+            setTextColor(Color.parseColor("#D1FAE5"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.MONOSPACE
+            setPadding(0, dp(10), 0, 0)
+        }
+
+        card.addView(rewardLevelText)
+        card.addView(rewardMasteryText)
+        card.addView(rewardTimeSavedText)
+        card.addView(rewardEquivalentText)
+        card.addView(rewardConsistencyText)
+        return card
     }
 
     private fun refreshUi() {
@@ -163,6 +226,15 @@ class MainActivity : Activity() {
             serviceStatusText.setTextColor(Color.parseColor("#FBBF24"))
             serviceActionBtn.text = "Ativar Serviço de Acessibilidade"
         }
+
+        val summary = policyEngine.getRewardSummary()
+        rewardLevelText.text = "Nível de Foco: ${summary.focusLevelTitle}"
+        rewardMasteryText.text =
+            "🛡️ Hoje: ${summary.abortedToday}/${summary.attemptsToday} impulsos vencidos (${summary.masteryPercentToday}%) • ${summary.voluntaryExitsToday} saída(s) consciente(s)"
+        rewardTimeSavedText.text =
+            "🌱 Tempo resgatado: +${summary.reclaimedMinutesToday} min hoje • ${formatMinutesSummary(summary.totalReclaimedMinutes)} no total"
+        rewardEquivalentText.text = summary.tangibleEquivalentText
+        rewardConsistencyText.text = "7d: [${summary.last7DaysDots}] • ${summary.consistencySummaryText}"
 
         val lockStatus = policyEngine.getSettingsLockStatus()
         if (lockStatus.isLocked) {
@@ -193,6 +265,7 @@ class MainActivity : Activity() {
                 isChecked = app.id in config.enabledAppIds,
                 usedMinutes = usedMin,
                 quotaMinutes = config.dailyQuotaMinutes,
+                sessionsToday = usage.sessionsStartedToday,
                 isCooldown = isCooldown,
                 isLocked = isLocked,
                 onToggle = { enabled ->
@@ -210,6 +283,7 @@ class MainActivity : Activity() {
         isChecked: Boolean,
         usedMinutes: Long,
         quotaMinutes: Int,
+        sessionsToday: Int,
         isCooldown: Boolean,
         isLocked: Boolean,
         onToggle: (Boolean) -> Unit
@@ -241,7 +315,7 @@ class MainActivity : Activity() {
 
         val statusSuffix = if (isCooldown) " • Em Cooldown" else ""
         val statsView = TextView(this).apply {
-            text = "Hoje: ${usedMinutes}/${quotaMinutes} min$statusSuffix"
+            text = "Hoje: ${usedMinutes}/${quotaMinutes} min • $sessionsToday sessão(ões)$statusSuffix"
             setTextColor(if (isCooldown) Color.parseColor("#F87171") else Color.parseColor("#94A3B8"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(2), 0, 0)
@@ -267,7 +341,7 @@ class MainActivity : Activity() {
 
         paramsContainer.addView(
             buildStepperRow(
-                label = "Pausa Consciente ao Abrir",
+                label = "Pausa Consciente Base ao Abrir",
                 valueText = "${config.mindfulPauseSeconds} seg",
                 isLocked = isLocked,
                 onDecrement = {
@@ -277,6 +351,31 @@ class MainActivity : Activity() {
                 onIncrement = {
                     val next = (config.mindfulPauseSeconds + 5).coerceAtMost(60)
                     updateConfig(config.copy(mindfulPauseSeconds = next))
+                }
+            )
+        )
+
+        paramsContainer.addView(
+            buildToggleParamRow(
+                title = "Pausa Progressiva (+5s por sessão no dia)",
+                subtitle = "Aumenta a reflexão a cada reabertura repetida no mesmo dia",
+                isChecked = config.progressivePauseEnabled,
+                isLocked = isLocked,
+                onToggle = { enabled ->
+                    updateConfig(config.copy(progressivePauseEnabled = enabled))
+                }
+            )
+        )
+
+        paramsContainer.addView(
+            buildAnchorHabitRow(
+                currentHabit = config.selectedAnchorHabit,
+                isLocked = isLocked,
+                onCycleHabit = {
+                    val presets = FocusConfig.PRESET_ANCHOR_HABITS
+                    val idx = presets.indexOf(config.selectedAnchorHabit)
+                    val nextHabit = presets[(idx + 1) % presets.size]
+                    updateConfig(config.copy(selectedAnchorHabit = nextHabit))
                 }
             )
         )
@@ -328,6 +427,117 @@ class MainActivity : Activity() {
                 }
             )
         )
+    }
+
+    private fun buildToggleParamRow(
+        title: String,
+        subtitle: String,
+        isChecked: Boolean,
+        isLocked: Boolean,
+        onToggle: (Boolean) -> Unit
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = cardBackground("#111827", "#1E293B")
+            val padH = dp(16)
+            val padV = dp(12)
+            setPadding(padH, padV, padH, padV)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val titleView = TextView(this).apply {
+            text = title
+            setTextColor(Color.parseColor("#E2E8F0"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        }
+
+        val subView = TextView(this).apply {
+            text = subtitle
+            setTextColor(Color.parseColor("#94A3B8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(0, dp(2), 0, 0)
+        }
+
+        textCol.addView(titleView)
+        textCol.addView(subView)
+
+        val toggle = Switch(this).apply {
+            this.isChecked = isChecked
+            isEnabled = !isLocked
+            alpha = if (isLocked) 0.45f else 1.0f
+            setOnCheckedChangeListener { _, checked -> onToggle(checked) }
+        }
+
+        row.addView(textCol)
+        row.addView(toggle)
+        return row
+    }
+
+    private fun buildAnchorHabitRow(
+        currentHabit: String,
+        isLocked: Boolean,
+        onCycleHabit: () -> Unit
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = cardBackground("#111827", "#1E293B")
+            val padH = dp(16)
+            val padV = dp(12)
+            setPadding(padH, padV, padH, padV)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val labelView = TextView(this).apply {
+            text = "Âncora do Botão Verde (Meta Real)"
+            setTextColor(Color.parseColor("#E2E8F0"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        }
+
+        val valueView = TextView(this).apply {
+            text = "Ao desistir: \"$currentHabit\""
+            setTextColor(Color.parseColor("#34D399"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(2), 0, 0)
+        }
+
+        textCol.addView(labelView)
+        textCol.addView(valueView)
+
+        val cycleBtn = Button(this).apply {
+            text = "Trocar"
+            isAllCaps = false
+            isEnabled = !isLocked
+            alpha = if (isLocked) 0.4f else 1.0f
+            setTextColor(Color.parseColor("#F8FAFC"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.DEFAULT_BOLD
+            background = cardBackground("#1E293B", "#334155", cornerDp = 8)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setOnClickListener { onCycleHabit() }
+        }
+
+        row.addView(textCol)
+        row.addView(cycleBtn)
+        return row
     }
 
     private fun buildStepperRow(
@@ -405,6 +615,13 @@ class MainActivity : Activity() {
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ) ?: return false
         return enabledServices.contains(packageName)
+    }
+
+    private fun formatMinutesSummary(totalMinutes: Long): String {
+        if (totalMinutes < 60L) return "${totalMinutes} min"
+        val hours = totalMinutes / 60L
+        val mins = totalMinutes % 60L
+        return if (mins == 0L) "${hours}h" else "${hours}h ${mins}m"
     }
 
     private fun sectionHeader(title: String): TextView = TextView(this).apply {

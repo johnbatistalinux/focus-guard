@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -28,7 +29,8 @@ import java.util.Locale
 class OverlayController(
     private val context: Context,
     private val onExitToHomeClicked: () -> Unit,
-    private val onConfirmSessionClicked: () -> Unit
+    private val onConfirmSessionClicked: (isQuickMicroSession: Boolean) -> Unit,
+    private val onEndSessionEarlyClicked: () -> Unit = {}
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
@@ -36,11 +38,18 @@ class OverlayController(
     private var barrierTitleText: TextView? = null
     private var barrierSubtitleText: TextView? = null
     private var barrierCounterText: TextView? = null
+    private var barrierRewardBannerText: TextView? = null
     private var barrierQuotaInfoText: TextView? = null
     private var primaryExitButton: Button? = null
+    private var tertiaryQuickMicroButton: Button? = null
     private var secondaryProceedButton: Button? = null
 
+    private var currentReclaimedMinutesOnAbort: Int = 5
+    private var isMindfulPauseActive: Boolean = false
+
     private var floatingPillText: TextView? = null
+    private var floatingPillParams: WindowManager.LayoutParams? = null
+    private var isPillAlignedStart: Boolean = false
 
     fun render(action: InterventionAction) {
         when (action) {
@@ -50,21 +59,30 @@ class OverlayController(
             InterventionAction.NoOp -> Unit
             is InterventionAction.ShowMindfulPause -> {
                 removeFloatingPill()
-                showOrUpdateBarrier(
-                    title = "Respire fundo antes de abrir o ${action.displayName}",
-                    subtitle = if (action.readyToStartSession) {
+                isMindfulPauseActive = true
+                currentReclaimedMinutesOnAbort = action.reclaimedMinutesOnAbort
+                val cue = action.breathingCue.ifBlank {
+                    if (action.readyToStartSession) {
                         "Pausa concluída. Você realmente precisa entrar agora?"
                     } else {
                         "Quebrando o impulso automático de abrir o feed..."
-                    },
+                    }
+                }
+                showOrUpdateBarrier(
+                    title = "Respire fundo antes de abrir o ${action.displayName}",
+                    subtitle = cue,
                     counterValue = if (action.readyToStartSession) "Pronto" else "${action.remainingPauseSeconds}s",
+                    rewardBanner = action.rewardBannerText,
                     quotaText = "Cota diária restante hoje: ${formatDuration(action.remainingDailyQuotaSeconds)}",
+                    exitButtonLabel = action.anchorActionLabel,
+                    showQuickMicroButton = action.allowQuickMicroSession,
                     showProceedButton = true,
                     proceedEnabled = action.readyToStartSession
                 )
             }
             is InterventionAction.ShowHardBlock -> {
                 removeFloatingPill()
+                isMindfulPauseActive = false
                 val isDailyExhausted = action.reason == BlockReason.DAILY_QUOTA_EXCEEDED
                 showOrUpdateBarrier(
                     title = "${action.displayName} bloqueado",
@@ -78,11 +96,14 @@ class OverlayController(
                     } else {
                         formatDuration(action.remainingBlockSeconds)
                     },
+                    rewardBanner = "🌱 Aproveite este intervalo fora da tela para focar no que importa.",
                     quotaText = if (isDailyExhausted) {
                         "O acesso será liberado novamente após a meia-noite."
                     } else {
                         "Aguarde o fim do cooldown para evitar o deep scrolling."
                     },
+                    exitButtonLabel = "Voltar para a Tela Inicial",
+                    showQuickMicroButton = false,
                     showProceedButton = false,
                     proceedEnabled = false
                 )
@@ -103,7 +124,10 @@ class OverlayController(
         title: String,
         subtitle: String,
         counterValue: String,
+        rewardBanner: String,
         quotaText: String,
+        exitButtonLabel: String,
+        showQuickMicroButton: Boolean,
         showProceedButton: Boolean,
         proceedEnabled: Boolean
     ) {
@@ -115,6 +139,21 @@ class OverlayController(
         barrierSubtitleText?.text = subtitle
         barrierCounterText?.text = counterValue
         barrierQuotaInfoText?.text = quotaText
+        primaryExitButton?.text = exitButtonLabel
+
+        barrierRewardBannerText?.apply {
+            if (rewardBanner.isNotBlank()) {
+                visibility = View.VISIBLE
+                text = rewardBanner
+            } else {
+                visibility = View.GONE
+            }
+        }
+
+        tertiaryQuickMicroButton?.apply {
+            visibility = if (showQuickMicroButton) View.VISIBLE else View.GONE
+            isEnabled = showQuickMicroButton
+        }
 
         secondaryProceedButton?.apply {
             if (showProceedButton) {
@@ -122,7 +161,7 @@ class OverlayController(
                 isEnabled = proceedEnabled
                 alpha = if (proceedEnabled) 1.0f else 0.38f
                 text = if (proceedEnabled) {
-                    "Liberar sessão curta consciente"
+                    "Liberar sessão completa"
                 } else {
                     "Aguarde a pausa terminar..."
                 }
@@ -153,7 +192,7 @@ class OverlayController(
             setTextColor(Color.parseColor("#94A3B8"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
-            setPadding(0, dp(12), 0, dp(28))
+            setPadding(0, dp(10), 0, dp(20))
         }
 
         val counterView = TextView(context).apply {
@@ -161,14 +200,30 @@ class OverlayController(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
             typeface = Typeface.MONOSPACE
             gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, dp(24))
+            setPadding(0, dp(4), 0, dp(16))
+        }
+
+        val rewardBannerView = TextView(context).apply {
+            setTextColor(Color.parseColor("#6EE7B7"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = roundedRect(fillColor = "#064E3B", strokeColor = "#059669", cornerDp = 10)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+
+        val bannerParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            bottomMargin = dp(14)
         }
 
         val quotaView = TextView(context).apply {
             setTextColor(Color.parseColor("#CBD5E1"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(36))
+            setPadding(0, 0, 0, dp(24))
         }
 
         val exitBtn = Button(context).apply {
@@ -179,7 +234,25 @@ class OverlayController(
             typeface = Typeface.DEFAULT_BOLD
             background = roundedRect(fillColor = "#34D399", cornerDp = 12)
             setPadding(dp(20), dp(14), dp(20), dp(14))
-            setOnClickListener { onExitToHomeClicked() }
+            setOnClickListener { view ->
+                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                if (isMindfulPauseActive) {
+                    text = "✓ Boa escolha! +${currentReclaimedMinutesOnAbort} min resgatados 🌱"
+                }
+                onExitToHomeClicked()
+            }
+        }
+
+        val quickMicroBtn = Button(context).apply {
+            text = "⚡ Sessão rápida (1 min — Só responder)"
+            isAllCaps = false
+            setTextColor(Color.parseColor("#BAE6FD"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = Typeface.DEFAULT_BOLD
+            background = roundedRect(fillColor = "#0C4A6E", strokeColor = "#0284C7", cornerDp = 12)
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            visibility = View.GONE
+            setOnClickListener { onConfirmSessionClicked(true) }
         }
 
         val proceedBtn = Button(context).apply {
@@ -188,21 +261,23 @@ class OverlayController(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             background = roundedRect(fillColor = "#1E293B", strokeColor = "#475569", cornerDp = 12)
             setPadding(dp(20), dp(12), dp(20), dp(12))
-            setOnClickListener { onConfirmSessionClicked() }
+            setOnClickListener { onConfirmSessionClicked(false) }
         }
 
         val btnParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply {
-            bottomMargin = dp(14)
+            bottomMargin = dp(12)
         }
 
         root.addView(titleView)
         root.addView(subtitleView)
         root.addView(counterView)
+        root.addView(rewardBannerView, bannerParams)
         root.addView(quotaView)
         root.addView(exitBtn, btnParams)
+        root.addView(quickMicroBtn, btnParams)
         root.addView(proceedBtn, btnParams)
 
         val windowParams = WindowManager.LayoutParams(
@@ -222,8 +297,10 @@ class OverlayController(
             barrierTitleText = titleView
             barrierSubtitleText = subtitleView
             barrierCounterText = counterView
+            barrierRewardBannerText = rewardBannerView
             barrierQuotaInfoText = quotaView
             primaryExitButton = exitBtn
+            tertiaryQuickMicroButton = quickMicroBtn
             secondaryProceedButton = proceedBtn
         }
     }
@@ -235,9 +312,12 @@ class OverlayController(
         barrierTitleText = null
         barrierSubtitleText = null
         barrierCounterText = null
+        barrierRewardBannerText = null
         barrierQuotaInfoText = null
         primaryExitButton = null
+        tertiaryQuickMicroButton = null
         secondaryProceedButton = null
+        isMindfulPauseActive = false
     }
 
     private fun showOrUpdateFloatingPill(remainingSeconds: Long) {
@@ -247,7 +327,7 @@ class OverlayController(
 
         val isEndingSoon = remainingSeconds <= 30L
         floatingPillText?.apply {
-            text = formatDuration(remainingSeconds)
+            text = "${formatDuration(remainingSeconds)} •"
             setTextColor(
                 if (isEndingSoon) Color.parseColor("#FCA5A5") else Color.parseColor("#E2E8F0")
             )
@@ -260,30 +340,43 @@ class OverlayController(
     }
 
     private fun createAndAttachFloatingPill() {
-        val pill = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            typeface = Typeface.MONOSPACE
-            gravity = Gravity.CENTER
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-        }
-
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
+            gravity = Gravity.TOP or if (isPillAlignedStart) Gravity.START else Gravity.END
             x = dp(16)
             y = dp(48)
+        }
+
+        val pill = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            // Toque simples: alterna a pílula de canto (Direita <-> Esquerda) para não cobrir botões do app
+            setOnClickListener {
+                isPillAlignedStart = !isPillAlignedStart
+                val updatedParams = floatingPillParams ?: return@setOnClickListener
+                updatedParams.gravity = Gravity.TOP or if (isPillAlignedStart) Gravity.START else Gravity.END
+                runCatching { windowManager.updateViewLayout(this, updatedParams) }
+            }
+            // Toque longo: encerra a sessão voluntariamente com Bônus de Saída Consciente
+            setOnLongClickListener { view ->
+                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                onEndSessionEarlyClicked()
+                true
+            }
         }
 
         runCatching {
             windowManager.addView(pill, params)
             floatingPillText = pill
+            floatingPillParams = params
         }
     }
 
@@ -291,6 +384,7 @@ class OverlayController(
         val pill = floatingPillText ?: return
         runCatching { windowManager.removeViewImmediate(pill) }
         floatingPillText = null
+        floatingPillParams = null
     }
 
     private fun roundedRect(

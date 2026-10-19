@@ -21,7 +21,9 @@ class FocusPolicyEngineTest {
                 mindfulPauseSeconds = 10,
                 sessionDurationMinutes = 5,
                 cooldownMinutes = 10,
-                dailyQuotaMinutes = 30
+                dailyQuotaMinutes = 30,
+                progressivePauseEnabled = true,
+                selectedAnchorHabit = "Ler 5 páginas 📖"
             )
         )
         engine = FocusPolicyEngine(store = fakeStore, timeProvider = fakeTime)
@@ -38,19 +40,14 @@ class FocusPolicyEngineTest {
     }
 
     @Test
-    fun `fluxo completo - pausa consciente de 10s libera sessao de 5 min`() {
+    fun `fluxo completo - pausa consciente de 10s libera sessao de 5 min ou micro-sessao`() {
         // 1. Usuário abre o Instagram
-        val openAction = engine.onWindowPackageChanged("com.instagram.android")
-        assertEquals(
-            InterventionAction.ShowMindfulPause(
-                appId = "instagram",
-                displayName = "Instagram",
-                remainingPauseSeconds = 10,
-                readyToStartSession = false,
-                remainingDailyQuotaSeconds = 1800L
-            ),
-            openAction
-        )
+        val openAction = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowMindfulPause
+        assertEquals("instagram", openAction.appId)
+        assertEquals(10, openAction.remainingPauseSeconds)
+        assertFalse(openAction.readyToStartSession)
+        assertEquals("Fechar e ir: Ler 5 páginas 📖", openAction.anchorActionLabel)
+        assertFalse(openAction.allowQuickMicroSession)
         assertTrue(engine.shouldRunTicker())
 
         // Tentativa prematura de confirmar antes dos 10s deve ser ignorada
@@ -62,23 +59,16 @@ class FocusPolicyEngineTest {
             engine.onSecondTick()
         }
 
-        // 3. No 10º segundo, o botão de iniciar sessão é habilitado
+        // 3. No 10º segundo, os botões de iniciar sessão (completa e 1 min) são habilitados
         fakeTime.advanceSeconds(1)
-        val readyAction = engine.onSecondTick()
-        assertEquals(
-            InterventionAction.ShowMindfulPause(
-                appId = "instagram",
-                displayName = "Instagram",
-                remainingPauseSeconds = 0,
-                readyToStartSession = true,
-                remainingDailyQuotaSeconds = 1800L
-            ),
-            readyAction
-        )
+        val readyAction = engine.onSecondTick() as InterventionAction.ShowMindfulPause
+        assertEquals(0, readyAction.remainingPauseSeconds)
+        assertTrue(readyAction.readyToStartSession)
+        assertTrue(readyAction.allowQuickMicroSession)
         assertFalse(engine.shouldRunTicker())
 
-        // 4. Usuário confirma início da sessão de 5 minutos (300s)
-        val sessionAction = engine.onConfirmStartSession()
+        // 4. Usuário confirma início da sessão completa de 5 minutos (300s)
+        val sessionAction = engine.onConfirmStartSession(isQuickMicroSession = false)
         assertEquals(
             InterventionAction.ShowFloatingTimer(
                 appId = "instagram",
@@ -93,7 +83,6 @@ class FocusPolicyEngineTest {
 
     @Test
     fun `pausa o cronometro quando usuario sai para o Launcher e retoma ao voltar`() {
-        // Abre Instagram e conclui a pausa de 10s
         engine.onWindowPackageChanged("com.instagram.android")
         repeat(10) {
             fakeTime.advanceSeconds(1)
@@ -170,15 +159,15 @@ class FocusPolicyEngineTest {
         )
 
         // Após os 10 minutos completos de Cooldown, o app volta a permitir a Pausa Consciente
+        // Com Pausa Progressiva ativa (1 sessão concluída hoje), a 2ª pausa passa de 10s para 15s!
         fakeTime.advanceSeconds(600)
         assertFalse(engine.getSettingsLockStatus().isLocked)
-        val reopenAfterCooldown = engine.onWindowPackageChanged("com.instagram.android")
-        assertTrue(reopenAfterCooldown is InterventionAction.ShowMindfulPause)
+        val reopenAfterCooldown = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowMindfulPause
+        assertEquals(15, reopenAfterCooldown.remainingPauseSeconds)
     }
 
     @Test
     fun `bloqueia pelo resto do dia quando a Cota Diaria de 30 min esgota e reseta no dia seguinte`() {
-        // Simula que o usuário já usou 29 min e 59s hoje (1799s de 1800s)
         fakeStore.saveUsageState(
             AppUsageState(
                 appId = "instagram",
@@ -221,17 +210,72 @@ class FocusPolicyEngineTest {
         fakeTime.advanceSeconds(600) // além do cooldown anterior
         assertFalse(engine.getSettingsLockStatus().isLocked)
 
-        val nextDayOpen = engine.onWindowPackageChanged("com.instagram.android")
-        assertEquals(
-            InterventionAction.ShowMindfulPause(
-                appId = "instagram",
-                displayName = "Instagram",
-                remainingPauseSeconds = 10,
-                readyToStartSession = false,
-                remainingDailyQuotaSeconds = 1800L
-            ),
-            nextDayOpen
-        )
+        val nextDayOpen = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowMindfulPause
+        assertEquals(10, nextDayOpen.remainingPauseSeconds)
+        assertEquals(1800L, nextDayOpen.remainingDailyQuotaSeconds)
+    }
+
+    @Test
+    fun `reforco positivo contabiliza desistencias na porta, minutos resgatados e equivalentes reais`() {
+        // 3 aberturas por impulso seguidas de desistência consciente na barreira
+        repeat(3) {
+            engine.onWindowPackageChanged("com.instagram.android")
+            engine.onUserAborted()
+        }
+
+        val summary = engine.getRewardSummary()
+        assertEquals(3, summary.attemptsToday)
+        assertEquals(3, summary.abortedToday)
+        assertEquals(100, summary.masteryPercentToday)
+        // 3 desistências * 5 min por sessão = 15 min resgatados
+        assertEquals(15L, summary.reclaimedMinutesToday)
+        assertEquals(15L, summary.totalReclaimedMinutes)
+        assertTrue(summary.tangibleEquivalentText.contains("páginas lidas"))
+        assertEquals("Iniciante Consciente 🌱", summary.focusLevelTitle)
+    }
+
+    @Test
+    fun `micro sessao de 1 min e bonus de saida voluntaria reduzem cooldown e somam tempo poupado`() {
+        // Abre Instagram, aguarda 10s e escolhe Micro-Sessão de 1 min (60s)
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        val microStart = engine.onConfirmStartSession(isQuickMicroSession = true) as InterventionAction.ShowFloatingTimer
+        assertEquals(60L, microStart.remainingSessionSeconds)
+
+        // Usa por apenas 20 segundos e aciona Saída Voluntária Antecipada (restavam 40s)
+        repeat(20) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        val earlyExitAction = engine.onUserEndedSessionEarly()
+        assertEquals(InterventionAction.DismissOverlay, earlyExitAction)
+
+        // Como usou menos de 60s e saiu voluntariamente, fica isento de Cooldown!
+        assertFalse(engine.getSettingsLockStatus().isLocked)
+        val summary = engine.getRewardSummary()
+        assertEquals(1, summary.voluntaryExitsToday)
+
+        // Agora inicia uma sessão completa de 5 min (300s), usa por 120s (2 min) e encerra voluntariamente (sobram 180s = 3 min)
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(15) { // 2ª sessão do dia = 15s de pausa progressiva
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession(isQuickMicroSession = false)
+        repeat(120) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onUserEndedSessionEarly()
+
+        // Como usou >= 60s mas saiu antes do fim, ganha 50% de desconto no Cooldown (5 min = 300s em vez de 600s)
+        val reopenDuringHalfCooldown = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowHardBlock
+        assertEquals(BlockReason.COOLDOWN_ACTIVE, reopenDuringHalfCooldown.reason)
+        assertEquals(300L, reopenDuringHalfCooldown.remainingBlockSeconds)
     }
 
     private class FakeTimeProvider(
@@ -257,6 +301,7 @@ class FocusPolicyEngineTest {
         private var config: FocusConfig
     ) : FocusPolicyStore {
         private val usageByApp = mutableMapOf<String, AppUsageState>()
+        private var rewardState: FocusRewardState? = null
 
         override fun getConfig(): FocusConfig = config
 
@@ -267,7 +312,12 @@ class FocusPolicyEngineTest {
         override fun getUsageState(appId: String, currentEpochDay: Long): AppUsageState {
             val existing = usageByApp[appId]
             if (existing == null || existing.epochDay != currentEpochDay) {
-                val fresh = AppUsageState(appId = appId, epochDay = currentEpochDay)
+                val preservedCooldown = existing?.cooldownUntilRealtimeMs ?: 0L
+                val fresh = AppUsageState(
+                    appId = appId,
+                    epochDay = currentEpochDay,
+                    cooldownUntilRealtimeMs = preservedCooldown
+                )
                 usageByApp[appId] = fresh
                 return fresh
             }
@@ -276,6 +326,33 @@ class FocusPolicyEngineTest {
 
         override fun saveUsageState(state: AppUsageState) {
             usageByApp[state.appId] = state
+        }
+
+        override fun getRewardState(currentEpochDay: Long): FocusRewardState {
+            val current = rewardState
+            if (current == null) {
+                val initial = FocusRewardState(epochDay = currentEpochDay)
+                rewardState = initial
+                return initial
+            }
+            if (current.epochDay != currentEpochDay) {
+                val delta = (currentEpochDay - current.epochDay).coerceIn(1L, 62L).toInt()
+                val newMask = (current.consistencyBitmask shl delta) or ((1L shl delta) - 1L)
+                val rolled = FocusRewardState(
+                    epochDay = currentEpochDay,
+                    totalReclaimedSeconds = current.totalReclaimedSeconds,
+                    totalImpulsesBeaten = current.totalImpulsesBeaten,
+                    consistencyBitmask = newMask,
+                    trackedDaysCount = (current.trackedDaysCount + delta).coerceIn(1, 62)
+                )
+                rewardState = rolled
+                return rolled
+            }
+            return current
+        }
+
+        override fun saveRewardState(state: FocusRewardState) {
+            rewardState = state
         }
     }
 }

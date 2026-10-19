@@ -19,6 +19,12 @@ interface KeyValueBackend {
 
     fun getLong(key: String, defaultValue: Long): Long
     fun putLong(key: String, value: Long)
+
+    fun getBoolean(key: String, defaultValue: Boolean): Boolean
+    fun putBoolean(key: String, value: Boolean)
+
+    fun getString(key: String, defaultValue: String): String
+    fun putString(key: String, value: String)
 }
 
 /**
@@ -50,6 +56,20 @@ class SharedPreferencesBackend(
 
     override fun putLong(key: String, value: Long) {
         prefs.edit().putLong(key, value).apply()
+    }
+
+    override fun getBoolean(key: String, defaultValue: Boolean): Boolean =
+        prefs.getBoolean(key, defaultValue)
+
+    override fun putBoolean(key: String, value: Boolean) {
+        prefs.edit().putBoolean(key, value).apply()
+    }
+
+    override fun getString(key: String, defaultValue: String): String =
+        prefs.getString(key, null) ?: defaultValue
+
+    override fun putString(key: String, value: String) {
+        prefs.edit().putString(key, value).apply()
     }
 
     companion object {

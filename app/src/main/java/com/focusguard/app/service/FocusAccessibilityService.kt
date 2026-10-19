@@ -37,7 +37,8 @@ class FocusAccessibilityService : AccessibilityService() {
         overlayController = OverlayController(
             context = this,
             onExitToHomeClicked = ::handleUserExitToHome,
-            onConfirmSessionClicked = ::handleUserConfirmSession
+            onConfirmSessionClicked = ::handleUserConfirmSession,
+            onEndSessionEarlyClicked = ::handleUserEndSessionEarly
         )
         ticker = MainThreadTicker(onTick = ::handleSecondTick)
         activeInstance = this
@@ -77,9 +78,15 @@ class FocusAccessibilityService : AccessibilityService() {
         performGlobalAction(GLOBAL_ACTION_HOME)
     }
 
-    private fun handleUserConfirmSession() {
-        val action = policyEngine.onConfirmStartSession()
+    private fun handleUserConfirmSession(isQuickMicroSession: Boolean) {
+        val action = policyEngine.onConfirmStartSession(isQuickMicroSession)
         applyInterventionAction(action)
+    }
+
+    private fun handleUserEndSessionEarly() {
+        val action = policyEngine.onUserEndedSessionEarly()
+        applyInterventionAction(action)
+        performGlobalAction(GLOBAL_ACTION_HOME)
     }
 
     private fun handleSecondTick() {

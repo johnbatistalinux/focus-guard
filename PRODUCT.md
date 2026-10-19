@@ -69,7 +69,12 @@ Usuário de smartphone Android com 4 GB de RAM que deseja eliminar o hábito de 
 3. **Trava Anti-Sabotagem (Anti-Bypass):**
    - Enquanto qualquer aplicativo monitorado estiver em **Cooldown** ou com a **Cota Diária Esgotada**, a tela de configurações do FocusGuard entra em **Modo Somente Leitura (Trava Ativa)**: o usuário não pode desativar o switch do app nem aumentar o limite diário até que o cooldown termine ou o dia vire.
 4. **Reset Diário Automático (Lazy Evaluation):** Não usar `AlarmManager` em segundo plano à meia-noite para zerar contadores. O reset diário deve ser calculado de forma preguiçosa (*lazy*) comparando a data atual (`LocalDate` / epoch day) no momento em que o usuário interage com o serviço ou abre o app.
-5. **Catálogo Fixo Curado:** Sem uso da permissão `QUERY_ALL_PACKAGES`. O catálogo contém os pacotes oficiais:
+5. **Reforço Positivo e Fricção Consciente (Zero-Bloat):**
+   - **Placar de Impulsos Vencidos & Tempo Resgatado:** Contabiliza desistências conscientes na barreira e converte o tempo poupado em equivalentes tangíveis da vida real (páginas lidas, caminhadas).
+   - **Âncora de Identidade & Celebração Háptica:** Botão verde de saída exibe uma meta real escolhida pelo usuário e aciona `HapticFeedbackConstants.CONFIRM` ao desistir.
+   - **Micro-Sessão Rápida (1 min) & Bônus de Saída Voluntária:** Permite sessões de 1 min para responder mensagens e reduz o Cooldown em 50% (ou isenta se `< 60s`) quando o usuário encerra a sessão antes do fim.
+   - **Consistência Resiliente em Bitmask (`Long`):** Acompanha os últimos dias dentro da meta em apenas 8 bytes, sem zerar o progresso por um único deslize.
+6. **Catálogo Fixo Curado:** Sem uso da permissão `QUERY_ALL_PACKAGES`. O catálogo contém os pacotes oficiais:
    - Instagram (`com.instagram.android`)
    - TikTok (`com.zhiliaoapp.musically` / `com.ss.android.ugc.trill`)
    - YouTube (`com.google.android.youtube`)

@@ -30,3 +30,10 @@
 ## Milestone 5: Verificação de Qualidade (`pre-flight`) & Guia de Build APK
 - [x] Task 5.1: [Gate] Rodar testes unitários e validação de compilação/lint
 - [x] Task 5.2: [Docs] Adicionar instruções rápidas de instalação via `adb install` ou Android Studio
+
+## Milestone 6: Pacote de Reforço Positivo & Fricção Consciente
+- [x] Task 6.1: [Contract] Expandir `FocusConfig`, `AppUsageState`, `FocusRewardState`, `FocusRewardSummary` e `InterventionAction`
+- [x] Task 6.2: [Engine] Implementar Pausa Progressiva (+5s/sessão), Guia de Respiração 1 Hz, Micro-Sessão de 1 min, Bônus de Saída Voluntária e Consistência em Bitmask
+- [x] Task 6.3: [Data] Persistir métricas de reforço positivo e rollover diário da máscara de consistência em `FocusPreferencesStore`
+- [x] Task 6.4: [Overlay & UI] Adicionar celebração háptica na desistência, âncora de hábito, pílula interativa (troca de lado + saída voluntária) e Card de Conquistas na `MainActivity`
+- [x] Task 6.5: [Test] Cobrir o pacote de reforço positivo na suíte unitária JUnit 5
