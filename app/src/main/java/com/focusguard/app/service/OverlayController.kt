@@ -1,17 +1,23 @@
 package com.focusguard.app.service
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.focusguard.app.domain.BlockReason
@@ -40,8 +46,12 @@ class OverlayController(
     private var lastBarrierKeepScreenOn: Boolean? = null
     private var barrierTitleText: TextView? = null
     private var barrierSubtitleText: TextView? = null
+    private var breathingRingView: View? = null
+    private var breathingAnimator: ValueAnimator? = null
     private var barrierCounterText: TextView? = null
     private var barrierRewardBannerText: TextView? = null
+    private var quotaBarContainer: LinearLayout? = null
+    private var quotaBarFill: View? = null
     private var barrierQuotaInfoText: TextView? = null
     private var primaryExitButton: Button? = null
     private var tertiaryQuickMicroButton: Button? = null
@@ -53,7 +63,7 @@ class OverlayController(
     private var floatingPillText: TextView? = null
     private var floatingPillParams: WindowManager.LayoutParams? = null
     private var isPillAlignedStart: Boolean = false
-    private var lastPillEndingSoonState: Boolean? = null
+    private var lastPillEndingSoonState: Int? = null
 
     fun render(action: InterventionAction) {
         when (action) {
@@ -78,6 +88,7 @@ class OverlayController(
                     counterValue = if (action.readyToStartSession) "Pronto" else "${action.remainingPauseSeconds}s",
                     rewardBanner = action.rewardBannerText,
                     quotaText = "Cota diária restante hoje: ${formatDuration(action.remainingDailyQuotaSeconds)}",
+                    remainingQuotaSeconds = action.remainingDailyQuotaSeconds,
                     exitButtonLabel = action.anchorActionLabel,
                     showQuickMicroButton = action.allowQuickMicroSession,
                     showProceedButton = true,
@@ -106,6 +117,7 @@ class OverlayController(
                     } else {
                         "Aguarde o fim do cooldown para evitar o deep scrolling."
                     },
+                    remainingQuotaSeconds = 0L,
                     exitButtonLabel = "Voltar para a Tela Inicial",
                     showQuickMicroButton = false,
                     showProceedButton = false,
@@ -120,6 +132,7 @@ class OverlayController(
     }
 
     fun dismissAll() {
+        stopBreathingAnimation()
         removeBarrier()
         removeFloatingPill()
     }
@@ -130,6 +143,7 @@ class OverlayController(
         counterValue: String,
         rewardBanner: String,
         quotaText: String,
+        remainingQuotaSeconds: Long,
         exitButtonLabel: String,
         showQuickMicroButton: Boolean,
         showProceedButton: Boolean,
@@ -162,6 +176,22 @@ class OverlayController(
         barrierCounterText?.text = counterValue
         barrierQuotaInfoText?.text = quotaText
         primaryExitButton?.text = exitButtonLabel
+
+        if (isMindfulPauseActive) {
+            breathingRingView?.visibility = View.VISIBLE
+            startBreathingAnimation()
+            quotaBarContainer?.visibility = View.VISIBLE
+            val quotaColor = when {
+                remainingQuotaSeconds > 900L -> 0xFF10B981.toInt()
+                remainingQuotaSeconds > 300L -> 0xFFF59E0B.toInt()
+                else -> 0xFFEF4444.toInt()
+            }
+            quotaBarFill?.background = roundedRect(fillColor = quotaColor, cornerDp = 3)
+        } else {
+            stopBreathingAnimation()
+            breathingRingView?.visibility = View.GONE
+            quotaBarContainer?.visibility = View.GONE
+        }
 
         barrierRewardBannerText?.apply {
             if (rewardBanner.isNotBlank()) {
@@ -214,16 +244,43 @@ class OverlayController(
             setTextColor(COLOR_TEXT_MUTED)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, dp(20))
+            setPadding(0, dp(10), 0, dp(14))
+        }
+
+        val ringContainer = FrameLayout(context).apply {
+            val size = dp(116)
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                setMargins(0, dp(4), 0, dp(16))
+            }
+        }
+
+        val ringView = View(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0x1838BDF8.toInt())
+                setStroke(dp(2), COLOR_ACCENT_SKY)
+            }
         }
 
         val counterView = TextView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
             setTextColor(COLOR_ACCENT_SKY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
             typeface = Typeface.MONOSPACE
             gravity = Gravity.CENTER
-            setPadding(0, dp(4), 0, dp(16))
         }
+
+        ringContainer.addView(ringView)
+        ringContainer.addView(counterView)
 
         val rewardBannerView = TextView(context).apply {
             setTextColor(COLOR_REWARD_TEXT)
@@ -241,11 +298,26 @@ class OverlayController(
             bottomMargin = dp(14)
         }
 
+        val quotaBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(dp(180), dp(6)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(6)
+            }
+            background = roundedRect(fillColor = 0xFF1E293B.toInt(), cornerDp = 3)
+        }
+
+        val quotaFill = View(context).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.7f)
+            background = roundedRect(fillColor = 0xFF10B981.toInt(), cornerDp = 3)
+        }
+        quotaBar.addView(quotaFill)
+
         val quotaView = TextView(context).apply {
             setTextColor(COLOR_TEXT_SECONDARY)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(24))
+            setPadding(0, 0, 0, dp(20))
         }
 
         val exitBtn = Button(context).apply {
@@ -254,7 +326,7 @@ class OverlayController(
             setTextColor(COLOR_EXIT_BTN_TEXT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
-            background = roundedRect(fillColor = COLOR_EXIT_BTN_BG, cornerDp = 12)
+            background = rippleDrawable(fillColor = COLOR_EXIT_BTN_BG, cornerDp = 12)
             setPadding(dp(20), dp(14), dp(20), dp(14))
             setOnClickListener { view ->
                 performConfirmHaptic(view)
@@ -271,7 +343,7 @@ class OverlayController(
             setTextColor(COLOR_MICRO_BTN_TEXT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.DEFAULT_BOLD
-            background = roundedRect(fillColor = COLOR_MICRO_BTN_BG, strokeColor = COLOR_MICRO_BTN_BORDER, cornerDp = 12)
+            background = rippleDrawable(fillColor = COLOR_MICRO_BTN_BG, strokeColor = COLOR_MICRO_BTN_BORDER, cornerDp = 12)
             setPadding(dp(20), dp(12), dp(20), dp(12))
             visibility = View.GONE
             setOnClickListener { onConfirmSessionClicked(true) }
@@ -281,7 +353,7 @@ class OverlayController(
             isAllCaps = false
             setTextColor(COLOR_PROCEED_BTN_TEXT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            background = roundedRect(fillColor = COLOR_PROCEED_BTN_BG, strokeColor = COLOR_PROCEED_BTN_BORDER, cornerDp = 12)
+            background = rippleDrawable(fillColor = COLOR_PROCEED_BTN_BG, strokeColor = COLOR_PROCEED_BTN_BORDER, cornerDp = 12)
             setPadding(dp(20), dp(12), dp(20), dp(12))
             setOnClickListener { onConfirmSessionClicked(false) }
         }
@@ -295,8 +367,9 @@ class OverlayController(
 
         root.addView(titleView)
         root.addView(subtitleView)
-        root.addView(counterView)
+        root.addView(ringContainer)
         root.addView(rewardBannerView, bannerParams)
+        root.addView(quotaBar)
         root.addView(quotaView)
         root.addView(exitBtn, btnParams)
         root.addView(quickMicroBtn, btnParams)
@@ -319,8 +392,11 @@ class OverlayController(
             lastBarrierKeepScreenOn = false
             barrierTitleText = titleView
             barrierSubtitleText = subtitleView
+            breathingRingView = ringView
             barrierCounterText = counterView
             barrierRewardBannerText = rewardBannerView
+            quotaBarContainer = quotaBar
+            quotaBarFill = quotaFill
             barrierQuotaInfoText = quotaView
             primaryExitButton = exitBtn
             tertiaryQuickMicroButton = quickMicroBtn
@@ -329,6 +405,7 @@ class OverlayController(
     }
 
     private fun removeBarrier() {
+        stopBreathingAnimation()
         val view = barrierRootView ?: return
         if (view.isAttachedToWindow) {
             runCatching { windowManager.removeViewImmediate(view) }
@@ -338,8 +415,11 @@ class OverlayController(
         lastBarrierKeepScreenOn = null
         barrierTitleText = null
         barrierSubtitleText = null
+        breathingRingView = null
         barrierCounterText = null
         barrierRewardBannerText = null
+        quotaBarContainer = null
+        quotaBarFill = null
         barrierQuotaInfoText = null
         primaryExitButton = null
         tertiaryQuickMicroButton = null
@@ -353,15 +433,28 @@ class OverlayController(
         }
 
         val isEndingSoon = remainingSeconds <= 30L
+        val isUrgent = remainingSeconds <= 10L
+
         floatingPillText?.apply {
-            text = "${formatDuration(remainingSeconds)} •"
-            // Só realoca e troca o Drawable quando o estado visual muda (ex: ao entrar nos últimos 30s)
-            if (lastPillEndingSoonState != isEndingSoon) {
-                lastPillEndingSoonState = isEndingSoon
-                setTextColor(if (isEndingSoon) COLOR_PILL_WARN_TEXT else COLOR_PROCEED_BTN_TEXT)
+            val prefix = when {
+                isUrgent -> "🚨 "
+                isEndingSoon -> "⚠️ "
+                else -> "⋮ ⏱ "
+            }
+            text = "$prefix${formatDuration(remainingSeconds)}"
+
+            val stateKey = if (isUrgent) 2 else if (isEndingSoon) 1 else 0
+            if (lastPillEndingSoonState != stateKey) {
+                lastPillEndingSoonState = stateKey
+                val (fill, border, txtColor) = when (stateKey) {
+                    2 -> Triple(0xEE450A0A.toInt(), 0xFFEF4444.toInt(), 0xFFFEE2E2.toInt())
+                    1 -> Triple(0xEE451A03.toInt(), 0xFFF59E0B.toInt(), 0xFFFEF3C7.toInt())
+                    else -> Triple(COLOR_PILL_NORMAL_BG, COLOR_ACCENT_SKY, COLOR_PROCEED_BTN_TEXT)
+                }
+                setTextColor(txtColor)
                 background = roundedRect(
-                    fillColor = if (isEndingSoon) COLOR_PILL_WARN_BG else COLOR_PILL_NORMAL_BG,
-                    strokeColor = if (isEndingSoon) COLOR_PILL_WARN_BORDER else COLOR_ACCENT_SKY,
+                    fillColor = fill,
+                    strokeColor = border,
                     cornerDp = 20
                 )
             }
@@ -421,6 +514,43 @@ class OverlayController(
         floatingPillText = null
         floatingPillParams = null
         lastPillEndingSoonState = null
+    }
+
+    private fun startBreathingAnimation() {
+        val ring = breathingRingView ?: return
+        if (breathingAnimator != null) return
+        breathingAnimator = ValueAnimator.ofFloat(0.88f, 1.14f).apply {
+            duration = 4000L
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { anim ->
+                val scale = anim.animatedValue as Float
+                ring.scaleX = scale
+                ring.scaleY = scale
+            }
+            start()
+        }
+    }
+
+    private fun stopBreathingAnimation() {
+        breathingAnimator?.cancel()
+        breathingAnimator = null
+        breathingRingView?.apply {
+            scaleX = 1.0f
+            scaleY = 1.0f
+        }
+    }
+
+    private fun rippleDrawable(
+        fillColor: Int,
+        strokeColor: Int? = null,
+        cornerDp: Int = 12,
+        rippleColor: Int = 0x33FFFFFF
+    ): Drawable {
+        val content = roundedRect(fillColor, strokeColor, cornerDp)
+        val mask = roundedRect(Color.WHITE, null, cornerDp)
+        return RippleDrawable(ColorStateList.valueOf(rippleColor), content, mask)
     }
 
     private fun performConfirmHaptic(view: View) {

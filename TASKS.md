@@ -55,3 +55,11 @@
 - [x] Task 9.2: [A11y] Add `FLAG_ALT_FOCUSABLE_IM` to floating pill window parameters to prevent IME window manager conflicts
 - [x] Task 9.3: [Architecture] Implement intent-based launcher & launchable user app discrimination (`isTransientPackageOrWindow`), guaranteeing zero false session exits from non-launchable OEM/system/IME services
 - [x] Task 9.4: [Test] Verify suite with Gradle unit tests and assemble release APK
+
+## Milestone 10: v1.3.0 — UI/UX & Mindful Friction Evolution
+- [x] Task 10.1: [Contract] Add `brandColorHex` to `SocialAppCatalog.kt` and `FocusPreset` enum with preset configurations in `FocusModels.kt`
+- [x] Task 10.2: [Test] Write unit tests for `FocusPreset` validation and catalog brand color coverage
+- [x] Task 10.3: [Impl] Upgrade `OverlayController` with visual breathing ring animator, horizontal quota gauge, dynamic urgency warnings for the floating pill, and ripple effects
+- [x] Task 10.4: [Impl] Transform `MainActivity` with Bento-style 2x2 dashboard, 7-day pill calendar, one-tap focus presets, brand accents, and 4dp quota progress bars on app rows
+- [x] Task 10.5: [Gate] Verify JVM unit tests, compile release build, and confirm Zero-Bloat invariants
+

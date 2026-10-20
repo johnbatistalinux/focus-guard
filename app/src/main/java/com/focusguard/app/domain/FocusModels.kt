@@ -46,6 +46,50 @@ data class FocusConfig(
 }
 
 /**
+ * Perfis pré-definidos de intervenção e rigor de foco.
+ */
+enum class FocusPreset(
+    val title: String,
+    val description: String,
+    val mindfulPauseSeconds: Int,
+    val sessionDurationMinutes: Int,
+    val cooldownMinutes: Int,
+    val dailyQuotaMinutes: Int
+) {
+    BALANCED(
+        title = "Equilíbrio",
+        description = "10s pausa • 5m sessão • 10m cooldown • 30m cota",
+        mindfulPauseSeconds = 10,
+        sessionDurationMinutes = 5,
+        cooldownMinutes = 10,
+        dailyQuotaMinutes = 30
+    ),
+    DEEP_FOCUS(
+        title = "Foco Total",
+        description = "20s pausa • 3m sessão • 20m cooldown • 15m cota",
+        mindfulPauseSeconds = 20,
+        sessionDurationMinutes = 3,
+        cooldownMinutes = 20,
+        dailyQuotaMinutes = 15
+    ),
+    LIGHT_DETOX(
+        title = "Desmame Leve",
+        description = "5s pausa • 10m sessão • 5m cooldown • 60m cota",
+        mindfulPauseSeconds = 5,
+        sessionDurationMinutes = 10,
+        cooldownMinutes = 5,
+        dailyQuotaMinutes = 60
+    );
+
+    fun applyTo(config: FocusConfig): FocusConfig = config.copy(
+        mindfulPauseSeconds = mindfulPauseSeconds,
+        sessionDurationMinutes = sessionDurationMinutes,
+        cooldownMinutes = cooldownMinutes,
+        dailyQuotaMinutes = dailyQuotaMinutes
+    )
+}
+
+/**
  * Estado persistido do uso diário e cooldown de um aplicativo específico.
  *
  * @property appId Identificador lógico do app no [SocialAppCatalog].

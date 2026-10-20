@@ -538,6 +538,38 @@ class FocusPolicyEngineTest {
         )
     }
 
+    @Test
+    fun `focus presets apply correct values within validation limits`() {
+        val initialConfig = FocusConfig()
+
+        val balanced = FocusPreset.BALANCED.applyTo(initialConfig)
+        assertEquals(10, balanced.mindfulPauseSeconds)
+        assertEquals(5, balanced.sessionDurationMinutes)
+        assertEquals(10, balanced.cooldownMinutes)
+        assertEquals(30, balanced.dailyQuotaMinutes)
+
+        val deep = FocusPreset.DEEP_FOCUS.applyTo(initialConfig)
+        assertEquals(20, deep.mindfulPauseSeconds)
+        assertEquals(3, deep.sessionDurationMinutes)
+        assertEquals(20, deep.cooldownMinutes)
+        assertEquals(15, deep.dailyQuotaMinutes)
+
+        val light = FocusPreset.LIGHT_DETOX.applyTo(initialConfig)
+        assertEquals(5, light.mindfulPauseSeconds)
+        assertEquals(10, light.sessionDurationMinutes)
+        assertEquals(5, light.cooldownMinutes)
+        assertEquals(60, light.dailyQuotaMinutes)
+    }
+
+    @Test
+    fun `catalog apps define valid hex brand colors`() {
+        assertTrue(SocialAppCatalog.SUPPORTED_APPS.isNotEmpty())
+        for (app in SocialAppCatalog.SUPPORTED_APPS) {
+            assertTrue(app.brandColorHex.startsWith("#"), "App ${app.id} must have a valid hex color")
+            assertEquals(7, app.brandColorHex.length, "App ${app.id} brandColorHex must be in format #RRGGBB")
+        }
+    }
+
     private class FakeTimeProvider(
         initialRealtimeMs: Long,
         initialEpochDay: Long

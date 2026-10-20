@@ -7,7 +7,8 @@ package com.focusguard.app.domain
 data class TargetApp(
     val id: String,
     val displayName: String,
-    val packageNames: Set<String>
+    val packageNames: Set<String>,
+    val brandColorHex: String = "#38BDF8"
 )
 
 /**
@@ -19,42 +20,50 @@ object SocialAppCatalog {
         TargetApp(
             id = "instagram",
             displayName = "Instagram",
-            packageNames = setOf("com.instagram.android", "com.instagram.lite")
+            packageNames = setOf("com.instagram.android", "com.instagram.lite"),
+            brandColorHex = "#E1306C"
         ),
         TargetApp(
             id = "tiktok",
             displayName = "TikTok",
-            packageNames = setOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill", "com.zhiliaoapp.musically.go")
+            packageNames = setOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill", "com.zhiliaoapp.musically.go"),
+            brandColorHex = "#00F2FE"
         ),
         TargetApp(
             id = "youtube",
             displayName = "YouTube",
-            packageNames = setOf("com.google.android.youtube")
+            packageNames = setOf("com.google.android.youtube"),
+            brandColorHex = "#FF0000"
         ),
         TargetApp(
             id = "twitter_x",
             displayName = "X (Twitter)",
-            packageNames = setOf("com.twitter.android", "com.twitter.android.lite")
+            packageNames = setOf("com.twitter.android", "com.twitter.android.lite"),
+            brandColorHex = "#94A3B8"
         ),
         TargetApp(
             id = "reddit",
             displayName = "Reddit",
-            packageNames = setOf("com.reddit.frontpage")
+            packageNames = setOf("com.reddit.frontpage"),
+            brandColorHex = "#FF4500"
         ),
         TargetApp(
             id = "threads",
             displayName = "Threads",
-            packageNames = setOf("com.instagram.barcelona")
+            packageNames = setOf("com.instagram.barcelona"),
+            brandColorHex = "#A855F7"
         ),
         TargetApp(
             id = "facebook",
             displayName = "Facebook",
-            packageNames = setOf("com.facebook.katana", "com.facebook.lite")
+            packageNames = setOf("com.facebook.katana", "com.facebook.lite"),
+            brandColorHex = "#1877F2"
         ),
         TargetApp(
             id = "kwai",
             displayName = "Kwai",
-            packageNames = setOf("com.kwai.video")
+            packageNames = setOf("com.kwai.video"),
+            brandColorHex = "#FF8C00"
         )
     )
 

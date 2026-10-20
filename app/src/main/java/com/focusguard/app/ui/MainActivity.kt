@@ -2,13 +2,18 @@ package com.focusguard.app.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
@@ -20,6 +25,7 @@ import com.focusguard.app.data.FocusRuntime
 import com.focusguard.app.data.SystemTimeProvider
 import com.focusguard.app.domain.FocusConfig
 import com.focusguard.app.domain.FocusPolicyEngine
+import com.focusguard.app.domain.FocusPreset
 import com.focusguard.app.domain.SocialAppCatalog
 import com.focusguard.app.domain.TargetApp
 import com.focusguard.app.service.FocusAccessibilityService
@@ -41,9 +47,11 @@ class MainActivity : Activity() {
 
     private lateinit var rewardLevelText: TextView
     private lateinit var rewardMasteryText: TextView
+    private lateinit var rewardMasteryPercentText: TextView
     private lateinit var rewardTimeSavedText: TextView
     private lateinit var rewardEquivalentText: TextView
     private lateinit var rewardConsistencyText: TextView
+    private lateinit var consistencyDotsContainer: LinearLayout
 
     private lateinit var appsContainer: LinearLayout
     private lateinit var paramsContainer: LinearLayout
@@ -73,7 +81,7 @@ class MainActivity : Activity() {
         }
 
         val headerTitle = TextView(this).apply {
-            text = "FocusGuard v1.2"
+            text = "FocusGuard v1.3"
             setTextColor(Color.parseColor("#F8FAFC"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
             typeface = Typeface.DEFAULT_BOLD
@@ -105,9 +113,10 @@ class MainActivity : Activity() {
             setTextColor(Color.parseColor("#062E22"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.DEFAULT_BOLD
-            background = cardBackground("#38BDF8", null, cornerDp = 10)
+            background = interactiveCardBackground("#38BDF8", null, cornerDp = 10)
             setPadding(dp(14), dp(10), dp(14), dp(10))
-            setOnClickListener {
+            setOnClickListener { view ->
+                performHaptic(view)
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
         }
@@ -120,7 +129,7 @@ class MainActivity : Activity() {
         serviceCard.addView(serviceStatusText)
         serviceCard.addView(serviceActionBtn, btnMargin)
 
-        // Card de Conquistas & Reforço Positivo
+        // Bento Dashboard de Conquistas & Reforço Positivo
         val rewardCard = buildRewardCard()
         val rewardCardMargin = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -167,59 +176,158 @@ class MainActivity : Activity() {
     }
 
     private fun buildRewardCard(): View {
-        val card = LinearLayout(this).apply {
+        val rootCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = cardBackground("#062E22", "#059669")
+            background = cardBackground("#06171E", "#0E393F", cornerDp = 16)
             val pad = dp(16)
             setPadding(pad, pad, pad, pad)
         }
 
+        // Badge de Nível de Foco
         rewardLevelText = TextView(this).apply {
             setTextColor(Color.parseColor("#34D399"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             typeface = Typeface.DEFAULT_BOLD
+            background = cardBackground("#064E3B", "#059669", cornerDp = 8)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(12) }
+            layoutParams = params
+        }
+
+        // Grid Bento (2 Colunas)
+        val bentoRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+
+        // Bento Esquerda: Domínio Hoje
+        val leftBento = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardBackground("#0B1E28", "#153E4D", cornerDp = 12)
+            val pad = dp(12)
+            setPadding(pad, pad, pad, pad)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(5)
+            }
+        }
+
+        val masteryHeader = TextView(this).apply {
+            text = "DOMÍNIO HOJE"
+            setTextColor(Color.parseColor("#94A3B8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        rewardMasteryPercentText = TextView(this).apply {
+            setTextColor(Color.parseColor("#34D399"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(2), 0, dp(2))
         }
 
         rewardMasteryText = TextView(this).apply {
-            setTextColor(Color.parseColor("#ECFDF5"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setPadding(0, dp(6), 0, 0)
+            setTextColor(Color.parseColor("#CBD5E1"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+        }
+
+        leftBento.addView(masteryHeader)
+        leftBento.addView(rewardMasteryPercentText)
+        leftBento.addView(rewardMasteryText)
+
+        // Bento Direita: Tempo Resgatado
+        val rightBento = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardBackground("#0B1E28", "#153E4D", cornerDp = 12)
+            val pad = dp(12)
+            setPadding(pad, pad, pad, pad)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(5)
+            }
+        }
+
+        val timeHeader = TextView(this).apply {
+            text = "TEMPO RESGATADO"
+            setTextColor(Color.parseColor("#94A3B8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            typeface = Typeface.DEFAULT_BOLD
         }
 
         rewardTimeSavedText = TextView(this).apply {
-            setTextColor(Color.parseColor("#A7F3D0"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(Color.parseColor("#38BDF8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, dp(6), 0, 0)
+            setPadding(0, dp(2), 0, dp(2))
         }
 
         rewardEquivalentText = TextView(this).apply {
-            setTextColor(Color.parseColor("#6EE7B7"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setPadding(0, dp(2), 0, 0)
+            setTextColor(Color.parseColor("#CBD5E1"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+        }
+
+        rightBento.addView(timeHeader)
+        rightBento.addView(rewardTimeSavedText)
+        rightBento.addView(rewardEquivalentText)
+
+        bentoRow.addView(leftBento)
+        bentoRow.addView(rightBento)
+
+        // Bento Inferior: Consistência Semanal (7 dias)
+        val consistencyCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardBackground("#0B1E28", "#153E4D", cornerDp = 12)
+            val pad = dp(12)
+            setPadding(pad, pad, pad, pad)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+
+        val consistencyHeader = TextView(this).apply {
+            text = "CONSISTÊNCIA SEMANAL"
+            setTextColor(Color.parseColor("#94A3B8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            typeface = Typeface.DEFAULT_BOLD
         }
 
         rewardConsistencyText = TextView(this).apply {
             setTextColor(Color.parseColor("#D1FAE5"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            typeface = Typeface.MONOSPACE
-            setPadding(0, dp(10), 0, 0)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(3), 0, dp(8))
         }
+
+        consistencyDotsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        consistencyCard.addView(consistencyHeader)
+        consistencyCard.addView(rewardConsistencyText)
+        consistencyCard.addView(consistencyDotsContainer)
 
         val pillHintText = TextView(this).apply {
-            text = "💡 Na sessão: toque na pílula p/ mudar de lado • segure p/ encerrar com bônus"
-            setTextColor(Color.parseColor("#A7F3D0"))
+            text = "💡 Na sessão: toque na pílula p/ alternar lado • segure p/ encerrar com bônus"
+            setTextColor(Color.parseColor("#64748B"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setPadding(0, dp(8), 0, 0)
+            setPadding(0, dp(2), 0, 0)
         }
 
-        card.addView(rewardLevelText)
-        card.addView(rewardMasteryText)
-        card.addView(rewardTimeSavedText)
-        card.addView(rewardEquivalentText)
-        card.addView(rewardConsistencyText)
-        card.addView(pillHintText)
-        return card
+        rootCard.addView(rewardLevelText)
+        rootCard.addView(bentoRow)
+        rootCard.addView(consistencyCard)
+        rootCard.addView(pillHintText)
+        return rootCard
     }
 
     private fun refreshUi() {
@@ -235,13 +343,13 @@ class MainActivity : Activity() {
         }
 
         val summary = policyEngine.getRewardSummary()
-        rewardLevelText.text = "Nível de Foco: ${summary.focusLevelTitle}"
-        rewardMasteryText.text =
-            "🛡️ Hoje: ${summary.abortedToday}/${summary.attemptsToday} impulsos vencidos (${summary.masteryPercentToday}%) • ${summary.voluntaryExitsToday} saída(s) consciente(s)"
-        rewardTimeSavedText.text =
-            "🌱 Tempo resgatado: +${summary.reclaimedMinutesToday} min hoje • ${formatMinutesSummary(summary.totalReclaimedMinutes)} no total"
-        rewardEquivalentText.text = summary.tangibleEquivalentText
-        rewardConsistencyText.text = "7d: [${summary.last7DaysDots}] • ${summary.consistencySummaryText}"
+        rewardLevelText.text = "Nível: ${summary.focusLevelTitle}"
+        rewardMasteryPercentText.text = "${summary.masteryPercentToday}%"
+        rewardMasteryText.text = "${summary.abortedToday}/${summary.attemptsToday} impulsos resistidos"
+        rewardTimeSavedText.text = "+${summary.reclaimedMinutesToday}m"
+        rewardEquivalentText.text = summary.tangibleEquivalentText.ifBlank { "Hoje • Fora da tela" }
+        rewardConsistencyText.text = summary.consistencySummaryText
+        renderConsistencyPills(summary.last7DaysDots)
 
         val lockStatus = policyEngine.getSettingsLockStatus()
         if (lockStatus.isLocked) {
@@ -254,6 +362,54 @@ class MainActivity : Activity() {
         val config = store.getConfig()
         renderAppsList(config, isLocked = lockStatus.isLocked)
         renderParamsList(config, isLocked = lockStatus.isLocked)
+    }
+
+    private fun renderConsistencyPills(dots: String) {
+        consistencyDotsContainer.removeAllViews()
+        val dayLabels = listOf("D-6", "D-5", "D-4", "D-3", "D-2", "Ontem", "Hoje")
+        val cleanDots = dots.filter { it == '●' || it == '○' }
+
+        for (i in 0 until 7) {
+            val isSuccess = if (i < cleanDots.length) cleanDots[i] == '●' else false
+            val isToday = i == 6
+
+            val pill = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val dotView = View(this).apply {
+                val size = dp(if (isToday) 12 else 9)
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    bottomMargin = dp(4)
+                }
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    val color = when {
+                        isSuccess -> Color.parseColor("#10B981")
+                        isToday -> Color.parseColor("#38BDF8")
+                        else -> Color.parseColor("#475569")
+                    }
+                    setColor(color)
+                    if (isToday) {
+                        setStroke(dp(1), Color.parseColor("#F8FAFC"))
+                    }
+                }
+            }
+
+            val labelView = TextView(this).apply {
+                text = if (isToday) "Hoje" else dayLabels[i]
+                setTextColor(if (isToday) Color.parseColor("#F8FAFC") else Color.parseColor("#64748B"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+                typeface = if (isToday) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                gravity = Gravity.CENTER
+            }
+
+            pill.addView(dotView)
+            pill.addView(labelView)
+            consistencyDotsContainer.addView(pill)
+        }
     }
 
     private fun renderAppsList(config: FocusConfig, isLocked: Boolean) {
@@ -308,28 +464,92 @@ class MainActivity : Activity() {
             ).apply { bottomMargin = dp(8) }
         }
 
+        // Pílula com a cor de marca do aplicativo
+        val brandDot = View(this).apply {
+            val size = dp(10)
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                marginEnd = dp(12)
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor(app.brandColorHex))
+            }
+        }
+
         val textColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
+        val nameRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
         val nameView = TextView(this).apply {
             text = app.displayName
             setTextColor(Color.parseColor("#F1F5F9"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = Typeface.DEFAULT_BOLD
         }
+        nameRow.addView(nameView)
 
-        val statusSuffix = if (isCooldown) " • Em Cooldown" else ""
+        if (isCooldown) {
+            val cooldownBadge = TextView(this).apply {
+                text = "⏳ Cooldown"
+                setTextColor(Color.parseColor("#FCA5A5"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                typeface = Typeface.DEFAULT_BOLD
+                background = cardBackground("#450A0A", "#DC2626", cornerDp = 6)
+                setPadding(dp(6), dp(2), dp(6), dp(2))
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = dp(8) }
+                layoutParams = params
+            }
+            nameRow.addView(cooldownBadge)
+        }
+
         val statsView = TextView(this).apply {
-            text = "Hoje: ${usedMinutes}/${quotaMinutes} min • $sessionsToday sessão(ões)$statusSuffix"
+            text = "Hoje: ${usedMinutes}/${quotaMinutes} min • $sessionsToday sessão(ões)"
             setTextColor(if (isCooldown) Color.parseColor("#F87171") else Color.parseColor("#94A3B8"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setPadding(0, dp(2), 0, 0)
         }
 
-        textColumn.addView(nameView)
+        // Barra de progresso nativa ultra-fina (4dp) indicando consumo da cota
+        val quotaProgressTrack = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(4)
+            ).apply {
+                topMargin = dp(6)
+            }
+            background = cardBackground("#1E293B", null, cornerDp = 2)
+        }
+
+        val ratio = if (quotaMinutes > 0) (usedMinutes.toFloat() / quotaMinutes.toFloat()).coerceIn(0f, 1f) else 0f
+        val quotaProgressFill = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, ratio.coerceAtLeast(0.001f))
+            val fillColor = when {
+                ratio >= 1.0f -> "#EF4444"
+                ratio >= 0.70f -> "#F59E0B"
+                else -> "#10B981"
+            }
+            background = cardBackground(fillColor, null, cornerDp = 2)
+        }
+        val quotaProgressEmpty = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (1f - ratio).coerceAtLeast(0.001f))
+        }
+        quotaProgressTrack.addView(quotaProgressFill)
+        quotaProgressTrack.addView(quotaProgressEmpty)
+
+        textColumn.addView(nameRow)
         textColumn.addView(statsView)
+        textColumn.addView(quotaProgressTrack)
 
         val toggle = Switch(this).apply {
             this.isChecked = isChecked
@@ -338,6 +558,7 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, checked -> onToggle(checked) }
         }
 
+        row.addView(brandDot)
         row.addView(textColumn)
         row.addView(toggle)
         return row
@@ -345,6 +566,9 @@ class MainActivity : Activity() {
 
     private fun renderParamsList(config: FocusConfig, isLocked: Boolean) {
         paramsContainer.removeAllViews()
+
+        // Fileira de Perfis Rápidos de Foco
+        paramsContainer.addView(buildPresetsRow(config, isLocked))
 
         paramsContainer.addView(
             buildStepperRow(
@@ -549,14 +773,80 @@ class MainActivity : Activity() {
             setTextColor(Color.parseColor("#F8FAFC"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             typeface = Typeface.DEFAULT_BOLD
-            background = cardBackground("#1E293B", "#334155", cornerDp = 8)
+            background = interactiveCardBackground("#1E293B", "#334155", cornerDp = 8)
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            setOnClickListener { onCycleHabit() }
+            setOnClickListener { view ->
+                performHaptic(view)
+                onCycleHabit()
+            }
         }
 
         row.addView(textCol)
         row.addView(cycleBtn)
         return row
+    }
+
+    private fun buildPresetsRow(config: FocusConfig, isLocked: Boolean): View {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = dp(14)
+            setPadding(pad, pad, pad, pad)
+            background = cardBackground("#111827", "#1E293B", cornerDp = 12)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+
+        val headerText = TextView(this).apply {
+            text = "⚡ PERFIS RÁPIDOS DE FOCO"
+            setTextColor(Color.parseColor("#94A3B8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(10))
+        }
+
+        val chipsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        for ((index, preset) in FocusPreset.entries.withIndex()) {
+            val isActive = config.mindfulPauseSeconds == preset.mindfulPauseSeconds &&
+                config.sessionDurationMinutes == preset.sessionDurationMinutes &&
+                config.cooldownMinutes == preset.cooldownMinutes &&
+                config.dailyQuotaMinutes == preset.dailyQuotaMinutes
+
+            val chip = Button(this).apply {
+                text = preset.title
+                isAllCaps = false
+                isEnabled = !isLocked
+                alpha = if (isLocked) 0.45f else 1.0f
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (isActive) Color.parseColor("#38BDF8") else Color.parseColor("#E2E8F0"))
+                val fill = if (isActive) "#0C4A6E" else "#1E293B"
+                val stroke = if (isActive) "#38BDF8" else "#334155"
+                background = interactiveCardBackground(fill, stroke, cornerDp = 10)
+                val params = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                    if (index > 0) marginStart = dp(8)
+                }
+                layoutParams = params
+                setPadding(0, 0, 0, 0)
+                setOnClickListener { view ->
+                    performHaptic(view)
+                    updateConfig(preset.applyTo(config))
+                }
+            }
+            chipsRow.addView(chip)
+        }
+
+        container.addView(headerText)
+        container.addView(chipsRow)
+        return container
     }
 
     private fun buildStepperRow(
@@ -613,11 +903,14 @@ class MainActivity : Activity() {
             setTextColor(Color.parseColor("#F8FAFC"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
-            background = cardBackground("#1E293B", "#334155", cornerDp = 8)
+            background = interactiveCardBackground("#1E293B", "#334155", cornerDp = 8)
             val size = dp(38)
             layoutParams = LinearLayout.LayoutParams(size, size)
             setPadding(0, 0, 0, 0)
-            setOnClickListener { onClick() }
+            setOnClickListener { view ->
+                performHaptic(view)
+                onClick()
+            }
         }
 
     private fun updateConfig(newConfig: FocusConfig) {
@@ -662,6 +955,26 @@ class MainActivity : Activity() {
         if (strokeColor != null) {
             setStroke(dp(1), Color.parseColor(strokeColor))
         }
+    }
+
+    private fun interactiveCardBackground(
+        fillColor: String,
+        strokeColor: String? = null,
+        cornerDp: Int = 12,
+        rippleColor: String = "#33FFFFFF"
+    ): Drawable {
+        val content = cardBackground(fillColor, strokeColor, cornerDp)
+        val mask = cardBackground("#FFFFFF", null, cornerDp)
+        return RippleDrawable(ColorStateList.valueOf(Color.parseColor(rippleColor)), content, mask)
+    }
+
+    private fun performHaptic(view: View) {
+        val feedbackConstant = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            HapticFeedbackConstants.CONFIRM
+        } else {
+            HapticFeedbackConstants.LONG_PRESS
+        }
+        view.performHapticFeedback(feedbackConstant)
     }
 
     private fun dp(value: Int): Int = TypedValue.applyDimension(

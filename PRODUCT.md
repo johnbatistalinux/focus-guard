@@ -83,3 +83,9 @@ Android smartphone user with 4 GB of RAM who wants to break the automatic *deep 
    - Threads (`com.instagram.barcelona`)
    - Facebook (`com.facebook.katana`)
    - Kwai (`com.kwai.video`)
+7. **Tactile & Visual Mindfulness System (v1.3):**
+   - **Visual Breathing Ring:** Smooth 4s inhalation/exhalation cycle using zero-allocation `ValueAnimator`.
+   - **Bento Mastery Dashboard:** 2x2 grid highlighting mastery percentage, reclaimed time, and 7-day consistency pills.
+   - **One-Tap Focus Presets:** Preconfigured profiles (*Equilíbrio*, *Foco Total*, *Desmame Leve*) with anti-bypass lock enforcement.
+   - **App Brand Accents & Native Progress Bars:** Visual brand identity pills and 4dp quota gauges per app.
+
