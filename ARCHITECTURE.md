@@ -108,7 +108,10 @@ The project enforces strict separation within a single root package and 4 cohesi
     - `OverlayController.kt` — Programmatic native `View` manager over `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`) with cached drawables, dynamic `FLAG_KEEP_SCREEN_ON`, haptic celebration, micro-session button, and interactive floating pill (tap to swap corner, long-press to finish early with bonus).
     - `MainThreadTicker.kt` — Zero-coroutine 1 Hz countdown wrapper around `Handler(Looper.getMainLooper())`.
   - `ui/`
-    - `MainActivity.kt` — Pure `android.app.Activity` configuration screen featuring the Achievements & Positive Reinforcement Card and anti-bypass lock enforcement.
+    - `MainActivity.kt` — Pure `android.app.Activity` configuration screen featuring the Bento dashboard, group cards, and anti-bypass lock enforcement.
+    - `InstalledAppScanner.kt` — On-demand scanner querying `PackageManager` for launchable user apps without background overhead.
+    - `AppPickerDialog.kt` — Programmatic dark-themed modal dialog with real-time search for assigning installed apps to focus groups.
+    - `GroupConfigDialog.kt` — Programmatic modal dialog for editing category parameters (emoji, presets, shared quotas, session timers, cooldown).
 
 ---
 
@@ -117,10 +120,30 @@ The project enforces strict separation within a single root package and 4 cohesi
 ```kotlin
 package com.focusguard.app.domain
 
+data class FocusGroup(
+    val id: String,
+    val name: String,
+    val iconEmoji: String = "📱",
+    val enabled: Boolean = true,
+    val appIds: Set<String> = emptySet(),
+    val mindfulPauseSeconds: Int = 10,
+    val sessionDurationMinutes: Int = 5,
+    val cooldownMinutes: Int = 10,
+    val dailyQuotaMinutes: Int = 30,
+    val progressivePauseEnabled: Boolean = true,
+    val sharedQuota: Boolean = true
+) {
+    val sessionDurationSeconds: Long get() = sessionDurationMinutes * 60L
+    val cooldownSeconds: Long get() = cooldownMinutes * 60L
+    val dailyQuotaSeconds: Long get() = dailyQuotaMinutes * 60L
+}
+
 data class TargetApp(
     val id: String,
     val displayName: String,
-    val packageNames: Set<String>
+    val packageNames: Set<String>,
+    val brandColorHex: String = "#38BDF8",
+    val isCustom: Boolean = false
 )
 
 data class FocusConfig(
@@ -130,7 +153,10 @@ data class FocusConfig(
     val cooldownMinutes: Int = 10,
     val dailyQuotaMinutes: Int = 30,
     val progressivePauseEnabled: Boolean = true,
-    val selectedAnchorHabit: String = DEFAULT_ANCHOR_HABIT
+    val selectedAnchorHabit: String = DEFAULT_ANCHOR_HABIT,
+    val groups: List<FocusGroup> = emptyList(),
+    val customApps: List<TargetApp> = emptyList(),
+    val sharedQuotaEnabled: Boolean = true
 )
 
 sealed interface InterventionAction {
@@ -151,13 +177,34 @@ sealed interface InterventionAction {
         val appId: String,
         val displayName: String,
         val reason: BlockReason,
-        val remainingBlockSeconds: Long
+        val remainingBlockSeconds: Long,
+        val groupName: String = ""
     ) : InterventionAction
 
     /** Mindful breathing/pause barrier before unlocking a session. */
     data class ShowMindfulPause(
         val appId: String,
         val displayName: String,
+        val remainingPauseSeconds: Int,
+        val readyToStartSession: Boolean,
+        val remainingDailyQuotaSeconds: Long,
+        val breathingCue: String = "",
+        val anchorActionLabel: String = "Fechar e voltar ao que importa",
+        val rewardBannerText: String = "",
+        val reclaimedMinutesOnAbort: Int = 5,
+        val allowQuickMicroSession: Boolean = false,
+        val groupName: String = ""
+    ) : InterventionAction
+
+    /** Active unlocked session: compact floating pill. */
+    data class ShowFloatingTimer(
+        val appId: String,
+        val displayName: String,
+        val remainingSessionSeconds: Long,
+        val remainingDailyQuotaSeconds: Long,
+        val groupName: String = ""
+    ) : InterventionAction
+}
         val remainingPauseSeconds: Int,
         val readyToStartSession: Boolean,
         val remainingDailyQuotaSeconds: Long,

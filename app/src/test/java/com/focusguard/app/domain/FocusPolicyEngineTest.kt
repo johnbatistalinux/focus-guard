@@ -570,6 +570,156 @@ class FocusPolicyEngineTest {
         }
     }
 
+    @Test
+    fun `cota compartilhada no mesmo grupo bloqueia outros apps do grupo ao ser esgotada`() {
+        val socialGroup = FocusGroup(
+            id = "group_social_test",
+            name = "Redes Sociais",
+            iconEmoji = "📱",
+            enabled = true,
+            appIds = setOf("instagram", "tiktok"),
+            mindfulPauseSeconds = 5,
+            sessionDurationMinutes = 5,
+            cooldownMinutes = 2,
+            dailyQuotaMinutes = 10,
+            progressivePauseEnabled = false,
+            sharedQuota = true
+        )
+        fakeStore.saveConfig(
+            FocusConfig(
+                groups = listOf(socialGroup)
+            )
+        )
+
+        // 1. Abre Instagram e faz a pausa de 5s
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(5) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession(isQuickMicroSession = false)
+
+        // Usa Instagram por 300 segundos (5 minutos)
+        repeat(300) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        // Aguarda passar o cooldown de 2 minutos (120s)
+        fakeTime.advanceSeconds(121)
+
+        // 2. Abre o TikTok do mesmo grupo: a cota restante deve ser 300s (5 minutos restantes de 10)
+        val tiktokPause = engine.onWindowPackageChanged("com.zhiliaoapp.musically") as InterventionAction.ShowMindfulPause
+        assertEquals(300L, tiktokPause.remainingDailyQuotaSeconds)
+        repeat(5) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession(isQuickMicroSession = false)
+
+        // Usa TikTok pelos 300s restantes
+        repeat(300) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        // 3. A cota total de 10 min do grupo foi esgotada! Tentar abrir o Instagram agora deve gerar HardBlock imediato
+        val blockedInstagram = engine.onWindowPackageChanged("com.instagram.android")
+        assertTrue(blockedInstagram is InterventionAction.ShowHardBlock, "Was $blockedInstagram")
+        assertEquals(BlockReason.DAILY_QUOTA_EXCEEDED, (blockedInstagram as InterventionAction.ShowHardBlock).reason)
+        assertEquals("Redes Sociais", blockedInstagram.groupName)
+    }
+
+    @Test
+    fun `isolamento entre grupos distintos nao propaga bloqueio de cota esgotada`() {
+        val customGameApp = TargetApp(
+            id = "custom_brawl",
+            displayName = "Brawl Stars",
+            packageNames = setOf("com.supercell.brawlstars"),
+            isCustom = true
+        )
+        val socialGroup = FocusGroup(
+            id = "group_social_test",
+            name = "Redes Sociais",
+            enabled = true,
+            appIds = setOf("instagram"),
+            dailyQuotaMinutes = 5,
+            sharedQuota = true
+        )
+        val gamesGroup = FocusGroup(
+            id = "group_games_test",
+            name = "Jogos",
+            iconEmoji = "🎮",
+            enabled = true,
+            appIds = setOf("custom_brawl"),
+            dailyQuotaMinutes = 20,
+            sharedQuota = true
+        )
+        fakeStore.saveConfig(
+            FocusConfig(
+                groups = listOf(socialGroup, gamesGroup),
+                customApps = listOf(customGameApp)
+            )
+        )
+
+        // Esgota o grupo de Redes Sociais no Instagram
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+        repeat(300) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        // Instagram agora está bloqueado por cota diária
+        val instagramBlocked = engine.onWindowPackageChanged("com.instagram.android")
+        assertTrue(instagramBlocked is InterventionAction.ShowHardBlock)
+
+        // Abrir o jogo Brawl Stars do grupo Jogos deve abrir a Pausa Consciente normalmente
+        val gameAction = engine.onWindowPackageChanged("com.supercell.brawlstars")
+        assertTrue(gameAction is InterventionAction.ShowMindfulPause)
+        val pause = gameAction as InterventionAction.ShowMindfulPause
+        assertEquals("Brawl Stars", pause.displayName)
+        assertEquals("Jogos", pause.groupName)
+        assertEquals(1200L, pause.remainingDailyQuotaSeconds)
+    }
+
+    @Test
+    fun `trava anti-sabotagem por grupo bloqueia alteracoes durante sessao ativa em app customizado`() {
+        val customApp = TargetApp(
+            id = "custom_game",
+            displayName = "Meu Jogo",
+            packageNames = setOf("com.example.game"),
+            isCustom = true
+        )
+        val gamesGroup = FocusGroup(
+            id = "group_games",
+            name = "Jogos",
+            appIds = setOf("custom_game"),
+            sharedQuota = true
+        )
+        fakeStore.saveConfig(
+            FocusConfig(
+                groups = listOf(gamesGroup),
+                customApps = listOf(customApp)
+            )
+        )
+
+        engine.onWindowPackageChanged("com.example.game")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+
+        val lockStatus = engine.getSettingsLockStatus()
+        assertTrue(lockStatus.isLocked)
+        assertTrue(lockStatus.reasonMessage?.contains("Meu Jogo") == true)
+    }
+
     private class FakeTimeProvider(
         initialRealtimeMs: Long,
         initialEpochDay: Long

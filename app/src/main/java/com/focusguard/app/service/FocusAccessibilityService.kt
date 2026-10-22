@@ -138,7 +138,7 @@ class FocusAccessibilityService : AccessibilityService() {
             currentForegroundPackage = pkgName
         }
 
-        if (SocialAppCatalog.findByPackageName(pkgName) != null) {
+        if (isMonitoredPackage(pkgName)) {
             lastMonitoredPackage = pkgName
         }
 
@@ -201,7 +201,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private fun resumeMonitoredAppIfStillInForeground() {
         val fgPkg = currentForegroundPackage ?: return
-        if (SocialAppCatalog.findByPackageName(fgPkg) != null) {
+        if (isMonitoredPackage(fgPkg)) {
             val action = policyEngine.onWindowPackageChanged(fgPkg)
             applyInterventionAction(action)
         }
@@ -292,7 +292,7 @@ class FocusAccessibilityService : AccessibilityService() {
         // trata-se de janela transitória gerada pelo ecossistema do IME ou sistema.
         if (isImeVisibleOnScreen) {
             val pkg = event.packageName?.toString().orEmpty()
-            if (SocialAppCatalog.findByPackageName(pkg) == null) {
+            if (!isMonitoredPackage(pkg)) {
                 return true
             }
         }
@@ -323,6 +323,12 @@ class FocusAccessibilityService : AccessibilityService() {
         return isLaunchable
     }
 
+    private fun isMonitoredPackage(pkgName: String): Boolean {
+        if (!::store.isInitialized) return false
+        val config = store.getConfig()
+        return SocialAppCatalog.findByPackageName(pkgName, config.customApps) != null
+    }
+
     private fun isTransientPackageOrWindow(pkgName: String, clsName: String?, event: AccessibilityEvent): Boolean {
         // 1. Verificações rápidas: janelas de acessibilidade, classes e IMEs conhecidos
         if (isTransientWindowEvent(event) ||
@@ -339,7 +345,7 @@ class FocusAccessibilityService : AccessibilityService() {
         }
 
         // 3. Se for uma das redes sociais monitoradas pelo FocusGuard, é evento legítimo de app alvo
-        if (SocialAppCatalog.findByPackageName(pkgName) != null) {
+        if (isMonitoredPackage(pkgName)) {
             return false
         }
 
@@ -424,8 +430,8 @@ class FocusAccessibilityService : AccessibilityService() {
         currentInfo.notificationTimeout = 100L
 
         if (forceTargetedOnly) {
-            val enabledIds = store.getConfig().enabledAppIds
-            val targetPackages = SocialAppCatalog.resolveAndroidPackages(enabledIds)
+            val config = store.getConfig()
+            val targetPackages = SocialAppCatalog.resolveAndroidPackagesForConfig(config)
             currentInfo.packageNames = if (targetPackages.isEmpty()) {
                 arrayOf(NOOP_PACKAGE_SENTINEL)
             } else {

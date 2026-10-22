@@ -144,10 +144,11 @@ class FocusPolicyEngine(
         }
 
         val config = store.getConfig()
-        val targetApp = catalog.findByPackageName(packageName)
+        val targetApp = catalog.findByPackageName(packageName, config.customApps)
+        val activeGroup = if (targetApp != null) config.findActiveGroupForApp(targetApp.id) else null
 
         // Se o usuário foi para o Launcher ou outro app não monitorado (ex: WhatsApp ou MainActivity)
-        if (targetApp == null || targetApp.id !in config.enabledAppIds) {
+        if (targetApp == null || activeGroup == null) {
             return handleExitToNonMonitoredApp()
         }
 
@@ -168,10 +169,11 @@ class FocusPolicyEngine(
 
         purgeExpiredBackgroundSessions(nowMs, today, config)
 
-        val usage = getSanitizedUsageState(targetApp.id, today, nowMs, config)
+        val (usage, _) = getEffectiveUsage(targetApp.id, activeGroup, today, nowMs)
+        val gName = groupDisplayName(activeGroup)
 
         // 1. Verifica se a Cota Diária já esgotou
-        val remainingDailySeconds = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
+        val remainingDailySeconds = (activeGroup.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
         if (remainingDailySeconds <= 0L) {
             pausedSessionsByAppId.remove(targetApp.id)
             markTodayQuotaExceededInReward(today)
@@ -180,7 +182,8 @@ class FocusPolicyEngine(
                 appId = targetApp.id,
                 displayName = targetApp.displayName,
                 reason = BlockReason.DAILY_QUOTA_EXCEEDED,
-                remainingBlockSeconds = 0L
+                remainingBlockSeconds = 0L,
+                groupName = gName
             )
         }
 
@@ -193,7 +196,8 @@ class FocusPolicyEngine(
                 appId = targetApp.id,
                 displayName = targetApp.displayName,
                 reason = BlockReason.COOLDOWN_ACTIVE,
-                remainingBlockSeconds = remainingCooldownSec
+                remainingBlockSeconds = remainingCooldownSec,
+                groupName = gName
             )
         }
 
@@ -215,7 +219,8 @@ class FocusPolicyEngine(
                 appId = targetApp.id,
                 displayName = targetApp.displayName,
                 remainingSessionSeconds = effectiveRemaining,
-                remainingDailyQuotaSeconds = remainingDailySeconds
+                remainingDailyQuotaSeconds = remainingDailySeconds,
+                groupName = gName
             )
         }
 
@@ -225,6 +230,7 @@ class FocusPolicyEngine(
             val ready = currentPause.remainingSeconds <= 0
             return buildMindfulPauseAction(
                 app = targetApp,
+                group = activeGroup,
                 remainingPauseSeconds = currentPause.remainingSeconds,
                 readyToStartSession = ready,
                 remainingDailyQuotaSeconds = remainingDailySeconds,
@@ -238,10 +244,11 @@ class FocusPolicyEngine(
         val updatedReward = currentReward.copy(attemptsToday = currentReward.attemptsToday + 1)
         store.saveRewardState(updatedReward)
 
-        val initialPause = computeProgressivePauseSeconds(config, usage.sessionsStartedToday)
+        val initialPause = computeProgressivePauseSeconds(activeGroup, usage.sessionsStartedToday)
         currentState = EngineState.InMindfulPause(targetApp, initialPause)
         return buildMindfulPauseAction(
             app = targetApp,
+            group = activeGroup,
             remainingPauseSeconds = initialPause,
             readyToStartSession = false,
             remainingDailyQuotaSeconds = remainingDailySeconds,
@@ -311,10 +318,13 @@ class FocusPolicyEngine(
         }
 
         val config = store.getConfig()
+        val group = resolveGroupForApp(config, state.app.id)
         val nowMs = timeProvider.elapsedRealtimeMs()
         val today = timeProvider.currentEpochDay()
-        val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
-        val remainingDailySeconds = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
+
+        val (usage, appUsage) = getEffectiveUsage(state.app.id, group, today, nowMs)
+        val remainingDailySeconds = (group.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
+        val gName = groupDisplayName(group)
 
         if (remainingDailySeconds <= 0L) {
             pausedSessionsByAppId.remove(state.app.id)
@@ -324,16 +334,20 @@ class FocusPolicyEngine(
                 appId = state.app.id,
                 displayName = state.app.displayName,
                 reason = BlockReason.DAILY_QUOTA_EXCEEDED,
-                remainingBlockSeconds = 0L
+                remainingBlockSeconds = 0L,
+                groupName = gName
             )
         }
 
         store.saveUsageState(usage.copy(sessionsStartedToday = usage.sessionsStartedToday + 1))
+        if (appUsage != null) {
+            store.saveUsageState(appUsage.copy(sessionsStartedToday = appUsage.sessionsStartedToday + 1))
+        }
 
         val requestedSeconds = if (isQuickMicroSession) {
-            minOf(QUICK_MICRO_SESSION_SECONDS, config.sessionDurationSeconds)
+            minOf(QUICK_MICRO_SESSION_SECONDS, group.sessionDurationSeconds)
         } else {
-            config.sessionDurationSeconds
+            group.sessionDurationSeconds
         }
         val sessionSeconds = minOf(requestedSeconds, remainingDailySeconds)
 
@@ -351,7 +365,8 @@ class FocusPolicyEngine(
             appId = state.app.id,
             displayName = state.app.displayName,
             remainingSessionSeconds = sessionSeconds,
-            remainingDailyQuotaSeconds = remainingDailySeconds
+            remainingDailyQuotaSeconds = remainingDailySeconds,
+            groupName = gName
         )
     }
 
@@ -363,12 +378,13 @@ class FocusPolicyEngine(
         val state = currentState
         if (state is EngineState.InMindfulPause) {
             val config = store.getConfig()
+            val group = resolveGroupForApp(config, state.app.id)
             val nowMs = timeProvider.elapsedRealtimeMs()
             val today = timeProvider.currentEpochDay()
-            val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
-            val remainingDaily = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
+            val (usage, _) = getEffectiveUsage(state.app.id, group, today, nowMs)
+            val remainingDaily = (group.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
             val reward = store.getRewardState(today)
-            val savedSec = minOf(config.sessionDurationSeconds, remainingDaily).coerceAtLeast(0L)
+            val savedSec = minOf(group.sessionDurationSeconds, remainingDaily).coerceAtLeast(0L)
             store.saveRewardState(
                 reward.copy(
                     abortedToday = reward.abortedToday + 1,
@@ -400,9 +416,9 @@ class FocusPolicyEngine(
         }
 
         val config = store.getConfig()
+        val group = resolveGroupForApp(config, state.app.id)
         val nowMs = timeProvider.elapsedRealtimeMs()
         val today = timeProvider.currentEpochDay()
-        val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
 
         val unusedSeconds = state.remainingSessionSeconds.coerceAtLeast(0L)
         val elapsedSessionSeconds = (state.initialSessionSeconds - unusedSeconds).coerceAtLeast(0L)
@@ -420,10 +436,15 @@ class FocusPolicyEngine(
         val discountedCooldownMs = if (elapsedSessionSeconds < QUICK_MICRO_SESSION_SECONDS) {
             0L
         } else {
-            (config.cooldownSeconds * 1000L) / 2L
+            (group.cooldownSeconds * 1000L) / 2L
         }
         val cooldownUntil = if (discountedCooldownMs > 0L) nowMs + discountedCooldownMs else 0L
+
+        val (usage, appUsage) = getEffectiveUsage(state.app.id, group, today, nowMs)
         store.saveUsageState(usage.copy(cooldownUntilRealtimeMs = cooldownUntil))
+        if (appUsage != null) {
+            store.saveUsageState(appUsage.copy(cooldownUntilRealtimeMs = cooldownUntil))
+        }
 
         pausedSessionsByAppId.remove(state.app.id)
         currentState = EngineState.Idle
@@ -443,14 +464,16 @@ class FocusPolicyEngine(
             EngineState.Idle -> InterventionAction.NoOp
 
             is EngineState.InMindfulPause -> {
-                val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
-                val remainingDaily = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
+                val group = resolveGroupForApp(config, state.app.id)
+                val (usage, _) = getEffectiveUsage(state.app.id, group, today, nowMs)
+                val remainingDaily = (group.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
                 val nextSec = (state.remainingSeconds - 1).coerceAtLeast(0)
                 val ready = nextSec == 0
                 val reward = store.getRewardState(today)
                 currentState = state.copy(remainingSeconds = nextSec)
                 buildMindfulPauseAction(
                     app = state.app,
+                    group = group,
                     remainingPauseSeconds = nextSec,
                     readyToStartSession = ready,
                     remainingDailyQuotaSeconds = remainingDaily,
@@ -464,17 +487,19 @@ class FocusPolicyEngine(
                     return InterventionAction.NoOp
                 }
 
-                val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
+                val group = resolveGroupForApp(config, state.app.id)
+                val (usage, appUsage) = getEffectiveUsage(state.app.id, group, today, nowMs)
                 val newUsedDaily = usage.usedDailySeconds + 1L
                 val newRemainingSession = state.remainingSessionSeconds - 1L
-                val newRemainingDaily = (config.dailyQuotaSeconds - newUsedDaily).coerceAtLeast(0L)
+                val newRemainingDaily = (group.dailyQuotaSeconds - newUsedDaily).coerceAtLeast(0L)
+                val gName = groupDisplayName(group)
 
                 // Se a sessão acabou OU a cota diária acabou neste segundo
                 if (newRemainingSession <= 0L || newRemainingDaily <= 0L) {
                     val cooldownDurationMs = if (state.isQuickMicroSession && newRemainingDaily > 0L) {
-                        (config.cooldownSeconds * 1000L) / 2L
+                        (group.cooldownSeconds * 1000L) / 2L
                     } else {
-                        config.cooldownSeconds * 1000L
+                        group.cooldownSeconds * 1000L
                     }
                     val cooldownUntil = nowMs + cooldownDurationMs
                     store.saveUsageState(
@@ -483,6 +508,14 @@ class FocusPolicyEngine(
                             cooldownUntilRealtimeMs = cooldownUntil
                         )
                     )
+                    if (appUsage != null) {
+                        store.saveUsageState(
+                            appUsage.copy(
+                                usedDailySeconds = appUsage.usedDailySeconds + 1L,
+                                cooldownUntilRealtimeMs = cooldownUntil
+                            )
+                        )
+                    }
                     if (newRemainingDaily <= 0L) {
                         markTodayQuotaExceededInReward(today)
                     }
@@ -496,27 +529,34 @@ class FocusPolicyEngine(
                     InterventionAction.KickToHome(appId = state.app.id, reason = reason)
                 } else {
                     store.saveUsageState(usage.copy(usedDailySeconds = newUsedDaily))
+                    if (appUsage != null) {
+                        store.saveUsageState(appUsage.copy(usedDailySeconds = appUsage.usedDailySeconds + 1L))
+                    }
                     currentState = state.copy(remainingSessionSeconds = newRemainingSession)
                     InterventionAction.ShowFloatingTimer(
                         appId = state.app.id,
                         displayName = state.app.displayName,
                         remainingSessionSeconds = newRemainingSession,
-                        remainingDailyQuotaSeconds = newRemainingDaily
+                        remainingDailyQuotaSeconds = newRemainingDaily,
+                        groupName = gName
                     )
                 }
             }
 
             is EngineState.InHardBlock -> {
+                val group = resolveGroupForApp(config, state.app.id)
+                val gName = groupDisplayName(group)
                 if (state.reason == BlockReason.DAILY_QUOTA_EXCEEDED) {
                     return InterventionAction.ShowHardBlock(
                         appId = state.app.id,
                         displayName = state.app.displayName,
                         reason = BlockReason.DAILY_QUOTA_EXCEEDED,
-                        remainingBlockSeconds = 0L
+                        remainingBlockSeconds = 0L,
+                        groupName = gName
                     )
                 }
-                val usage = getSanitizedUsageState(state.app.id, today, nowMs, config)
-                val remainingDaily = (config.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
+                val (usage, _) = getEffectiveUsage(state.app.id, group, today, nowMs)
+                val remainingDaily = (group.dailyQuotaSeconds - usage.usedDailySeconds).coerceAtLeast(0L)
                 if (remainingDaily <= 0L) {
                     markTodayQuotaExceededInReward(today)
                     currentState = EngineState.InHardBlock(state.app, BlockReason.DAILY_QUOTA_EXCEEDED)
@@ -524,7 +564,8 @@ class FocusPolicyEngine(
                         appId = state.app.id,
                         displayName = state.app.displayName,
                         reason = BlockReason.DAILY_QUOTA_EXCEEDED,
-                        remainingBlockSeconds = 0L
+                        remainingBlockSeconds = 0L,
+                        groupName = gName
                     )
                 }
                 if (usage.cooldownUntilRealtimeMs <= nowMs) {
@@ -533,10 +574,11 @@ class FocusPolicyEngine(
                     val updatedReward = currentReward.copy(attemptsToday = currentReward.attemptsToday + 1)
                     store.saveRewardState(updatedReward)
 
-                    val initialPause = computeProgressivePauseSeconds(config, usage.sessionsStartedToday)
+                    val initialPause = computeProgressivePauseSeconds(group, usage.sessionsStartedToday)
                     currentState = EngineState.InMindfulPause(state.app, initialPause)
                     buildMindfulPauseAction(
                         app = state.app,
+                        group = group,
                         remainingPauseSeconds = initialPause,
                         readyToStartSession = false,
                         remainingDailyQuotaSeconds = remainingDaily,
@@ -549,7 +591,8 @@ class FocusPolicyEngine(
                         appId = state.app.id,
                         displayName = state.app.displayName,
                         reason = BlockReason.COOLDOWN_ACTIVE,
-                        remainingBlockSeconds = remainingCooldownSec
+                        remainingBlockSeconds = remainingCooldownSec,
+                        groupName = gName
                     )
                 }
             }
@@ -621,10 +664,13 @@ class FocusPolicyEngine(
 
         purgeExpiredBackgroundSessions(nowMs, today, config)
 
+        val activeGroups = config.getEffectiveGroups().filter { it.enabled }
+        val allActiveAppIds = activeGroups.flatMap { it.appIds }.toSet()
+
         val activeOrPaused = (currentState as? EngineState.InActiveSession)
-            ?.takeIf { it.app.id in config.enabledAppIds && it.remainingSessionSeconds > 0L }
+            ?.takeIf { it.app.id in allActiveAppIds && it.remainingSessionSeconds > 0L }
             ?: pausedSessionsByAppId.values.firstOrNull {
-                it.app.id in config.enabledAppIds && it.remainingSessionSeconds > 0L
+                it.app.id in allActiveAppIds && it.remainingSessionSeconds > 0L
             }
 
         if (activeOrPaused != null) {
@@ -634,22 +680,57 @@ class FocusPolicyEngine(
             )
         }
 
-        for (appId in config.enabledAppIds) {
-            val app = catalog.SUPPORTED_APPS.find { it.id == appId } ?: continue
-            val usage = getSanitizedUsageState(appId, today, nowMs, config)
-
-            if (usage.usedDailySeconds >= config.dailyQuotaSeconds) {
-                return SettingsLockStatus(
-                    isLocked = true,
-                    reasonMessage = "Configurações travadas: a cota diária do ${app.displayName} já foi atingida hoje."
-                )
-            }
-            if (usage.cooldownUntilRealtimeMs > nowMs) {
-                val remainingMin = ((usage.cooldownUntilRealtimeMs - nowMs + 59_999L) / 60_000L)
-                return SettingsLockStatus(
-                    isLocked = true,
-                    reasonMessage = "Configurações travadas: ${app.displayName} está em cooldown por mais ${remainingMin} min."
-                )
+        for (group in activeGroups) {
+            val isDefaultSocial = group.id == FocusGroup.DEFAULT_GROUP_SOCIAL_ID
+            if (group.sharedQuota) {
+                val rawGroupUsage = getSanitizedUsageState(groupUsageKey(group.id), today, nowMs, group.cooldownSeconds)
+                var maxUsed = rawGroupUsage.usedDailySeconds
+                var maxCooldown = rawGroupUsage.cooldownUntilRealtimeMs
+                var maxApp: TargetApp? = null
+                for (appId in group.appIds) {
+                    val appUsage = getSanitizedUsageState(appId, today, nowMs, group.cooldownSeconds)
+                    if (appUsage.usedDailySeconds > maxUsed) {
+                        maxUsed = appUsage.usedDailySeconds
+                        maxApp = catalog.findById(appId, config.customApps)
+                    }
+                    if (appUsage.cooldownUntilRealtimeMs > maxCooldown) {
+                        maxCooldown = appUsage.cooldownUntilRealtimeMs
+                        maxApp = catalog.findById(appId, config.customApps)
+                    }
+                }
+                if (maxUsed >= group.dailyQuotaSeconds) {
+                    val targetName = if (isDefaultSocial && maxApp != null) maxApp.displayName else "do grupo ${group.name}"
+                    return SettingsLockStatus(
+                        isLocked = true,
+                        reasonMessage = "Configurações travadas: a cota diária $targetName já foi atingida hoje."
+                    )
+                }
+                if (maxCooldown > nowMs) {
+                    val remainingMin = ((maxCooldown - nowMs + 59_999L) / 60_000L)
+                    val targetName = if (isDefaultSocial && maxApp != null) maxApp.displayName else "o grupo ${group.name}"
+                    return SettingsLockStatus(
+                        isLocked = true,
+                        reasonMessage = "Configurações travadas: $targetName está em cooldown por mais ${remainingMin} min."
+                    )
+                }
+            } else {
+                for (appId in group.appIds) {
+                    val app = catalog.findById(appId, config.customApps) ?: continue
+                    val usage = getSanitizedUsageState(appId, today, nowMs, group.cooldownSeconds)
+                    if (usage.usedDailySeconds >= group.dailyQuotaSeconds) {
+                        return SettingsLockStatus(
+                            isLocked = true,
+                            reasonMessage = "Configurações travadas: a cota diária do ${app.displayName} já foi atingida hoje."
+                        )
+                    }
+                    if (usage.cooldownUntilRealtimeMs > nowMs) {
+                        val remainingMin = ((usage.cooldownUntilRealtimeMs - nowMs + 59_999L) / 60_000L)
+                        return SettingsLockStatus(
+                            isLocked = true,
+                            reasonMessage = "Configurações travadas: ${app.displayName} está em cooldown por mais ${remainingMin} min."
+                        )
+                    }
+                }
             }
         }
         return SettingsLockStatus(isLocked = false, reasonMessage = null)
@@ -677,9 +758,39 @@ class FocusPolicyEngine(
         is EngineState.InHardBlock -> true
     }
 
-    private fun computeProgressivePauseSeconds(config: FocusConfig, sessionsStartedToday: Int): Int {
-        val base = config.mindfulPauseSeconds
-        if (!config.progressivePauseEnabled || sessionsStartedToday <= 0) {
+    private fun groupUsageKey(groupId: String): String = "group_$groupId"
+
+    private fun groupDisplayName(group: FocusGroup): String =
+        if (group.id == FocusGroup.DEFAULT_GROUP_SOCIAL_ID) "" else group.name
+
+    private fun resolveGroupForApp(config: FocusConfig, appId: String): FocusGroup {
+        return config.findActiveGroupForApp(appId)
+            ?: config.findGroupForApp(appId)
+            ?: config.getEffectiveGroups().first()
+    }
+
+    private fun getEffectiveUsage(
+        appId: String,
+        group: FocusGroup,
+        today: Long,
+        nowMs: Long
+    ): Pair<AppUsageState, AppUsageState?> {
+        val appUsage = getSanitizedUsageState(appId, today, nowMs, group.cooldownSeconds)
+        if (!group.sharedQuota) {
+            return Pair(appUsage, null)
+        }
+        val rawGroupUsage = getSanitizedUsageState(groupUsageKey(group.id), today, nowMs, group.cooldownSeconds)
+        val mergedGroupUsage = rawGroupUsage.copy(
+            usedDailySeconds = maxOf(rawGroupUsage.usedDailySeconds, appUsage.usedDailySeconds),
+            cooldownUntilRealtimeMs = maxOf(rawGroupUsage.cooldownUntilRealtimeMs, appUsage.cooldownUntilRealtimeMs),
+            sessionsStartedToday = maxOf(rawGroupUsage.sessionsStartedToday, appUsage.sessionsStartedToday)
+        )
+        return Pair(mergedGroupUsage, appUsage)
+    }
+
+    private fun computeProgressivePauseSeconds(group: FocusGroup, sessionsStartedToday: Int): Int {
+        val base = group.mindfulPauseSeconds
+        if (!group.progressivePauseEnabled || sessionsStartedToday <= 0) {
             return base
         }
         val extra = sessionsStartedToday * PROGRESSIVE_PAUSE_STEP_SECONDS
@@ -689,6 +800,7 @@ class FocusPolicyEngine(
 
     private fun buildMindfulPauseAction(
         app: TargetApp,
+        group: FocusGroup,
         remainingPauseSeconds: Int,
         readyToStartSession: Boolean,
         remainingDailyQuotaSeconds: Long,
@@ -697,9 +809,9 @@ class FocusPolicyEngine(
     ): InterventionAction.ShowMindfulPause {
         val allowMicro = readyToStartSession &&
             remainingDailyQuotaSeconds >= QUICK_MICRO_SESSION_SECONDS &&
-            config.sessionDurationMinutes > 1
+            group.sessionDurationMinutes > 1
 
-        val effectiveReclaimedSec = minOf(config.sessionDurationSeconds, remainingDailyQuotaSeconds).coerceAtLeast(0L)
+        val effectiveReclaimedSec = minOf(group.sessionDurationSeconds, remainingDailyQuotaSeconds).coerceAtLeast(0L)
         val effectiveReclaimedMin = ((effectiveReclaimedSec + 59L) / 60L).toInt().coerceAtLeast(1)
 
         return InterventionAction.ShowMindfulPause(
@@ -712,7 +824,8 @@ class FocusPolicyEngine(
             anchorActionLabel = "Fechar e ir: ${config.selectedAnchorHabit}",
             rewardBannerText = formatOverlayRewardBanner(reward),
             reclaimedMinutesOnAbort = effectiveReclaimedMin,
-            allowQuickMicroSession = allowMicro
+            allowQuickMicroSession = allowMicro,
+            groupName = groupDisplayName(group)
         )
     }
 
@@ -790,13 +903,13 @@ class FocusPolicyEngine(
     }
 
     private fun getSanitizedUsageState(
-        appId: String,
+        id: String,
         todayEpochDay: Long,
         nowRealtimeMs: Long,
-        config: FocusConfig
+        cooldownSeconds: Long
     ): AppUsageState {
-        val raw = store.getUsageState(appId, todayEpochDay)
-        val maxPossibleCooldownMs = nowRealtimeMs + (config.cooldownSeconds * 1000L)
+        val raw = store.getUsageState(id, todayEpochDay)
+        val maxPossibleCooldownMs = nowRealtimeMs + (cooldownSeconds * 1000L)
 
         // Se o aparelho foi reiniciado (elapsedRealtimeMs voltou perto de zero), limpa cooldown órfão
         if (raw.cooldownUntilRealtimeMs > maxPossibleCooldownMs) {

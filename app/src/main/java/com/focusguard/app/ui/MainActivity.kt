@@ -24,6 +24,7 @@ import com.focusguard.app.data.FocusPreferencesStore
 import com.focusguard.app.data.FocusRuntime
 import com.focusguard.app.data.SystemTimeProvider
 import com.focusguard.app.domain.FocusConfig
+import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusPolicyEngine
 import com.focusguard.app.domain.FocusPreset
 import com.focusguard.app.domain.SocialAppCatalog
@@ -151,12 +152,12 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(16) }
 
-        val appsHeader = sectionHeader("Redes Sociais Monitoradas")
+        val appsHeader = sectionHeader("Grupos de Limites & Aplicativos")
         appsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
 
-        val paramsHeader = sectionHeader("Parâmetros de Intervenção & Reforço")
+        val paramsHeader = sectionHeader("Hábito Âncora & Parâmetros Padrão")
         paramsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -417,58 +418,377 @@ class MainActivity : Activity() {
         val today = SystemTimeProvider.currentEpochDay()
         val nowMs = SystemTimeProvider.elapsedRealtimeMs()
 
-        for (app in SocialAppCatalog.SUPPORTED_APPS) {
-            val usage = store.getUsageState(app.id, today)
-            val usedMin = usage.usedDailySeconds / 60L
-            val isCooldown = usage.cooldownUntilRealtimeMs > nowMs &&
-                (usage.cooldownUntilRealtimeMs - nowMs) <= config.cooldownSeconds * 1000L
+        val groups = config.getEffectiveGroups()
 
-            val row = buildAppRow(
-                app = app,
-                isChecked = app.id in config.enabledAppIds,
-                usedMinutes = usedMin,
-                quotaMinutes = config.dailyQuotaMinutes,
-                sessionsToday = usage.sessionsStartedToday,
-                isCooldown = isCooldown,
-                isLocked = isLocked,
-                onToggle = { enabled ->
-                    val updatedIds = config.enabledAppIds.toMutableSet()
-                    if (enabled) updatedIds.add(app.id) else updatedIds.remove(app.id)
-                    updateConfig(config.copy(enabledAppIds = updatedIds))
-                }
-            )
-            appsContainer.addView(row)
+        for (group in groups) {
+            val groupCard = buildGroupCard(group, config, today, nowMs, isLocked)
+            appsContainer.addView(groupCard)
         }
-    }
 
-    private fun buildAppRow(
-        app: TargetApp,
-        isChecked: Boolean,
-        usedMinutes: Long,
-        quotaMinutes: Int,
-        sessionsToday: Int,
-        isCooldown: Boolean,
-        isLocked: Boolean,
-        onToggle: (Boolean) -> Unit
-    ): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = cardBackground("#111827", "#1E293B")
+        val createGroupBtn = TextView(this).apply {
+            text = "✨ Criar Novo Grupo de Limite"
+            setTextColor(Color.parseColor("#38BDF8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = interactiveCardBackground("#0F172A", "#38BDF8", cornerDp = 12)
             val padH = dp(16)
             val padV = dp(14)
             setPadding(padH, padV, padH, padV)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8) }
+            ).apply {
+                topMargin = dp(4)
+                bottomMargin = dp(16)
+            }
+            isEnabled = !isLocked
+            alpha = if (isLocked) 0.45f else 1.0f
+            setOnClickListener { view ->
+                performHaptic(view)
+                val newGroupId = "group_${System.currentTimeMillis()}"
+                val newGroup = FocusGroup(
+                    id = newGroupId,
+                    name = "Nova Categoria",
+                    iconEmoji = "🎯",
+                    enabled = true,
+                    appIds = emptySet(),
+                    mindfulPauseSeconds = config.mindfulPauseSeconds,
+                    sessionDurationMinutes = config.sessionDurationMinutes,
+                    cooldownMinutes = config.cooldownMinutes,
+                    dailyQuotaMinutes = config.dailyQuotaMinutes,
+                    progressivePauseEnabled = config.progressivePauseEnabled,
+                    sharedQuota = true
+                )
+                GroupConfigDialog(
+                    context = this@MainActivity,
+                    group = newGroup,
+                    isNewGroup = true,
+                    isLocked = isLocked,
+                    onSave = { createdGroup ->
+                        val currentGroups = config.getEffectiveGroups().toMutableList()
+                        currentGroups.add(createdGroup)
+                        val allEnabled = currentGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
+                        updateConfig(config.copy(groups = currentGroups, enabledAppIds = allEnabled))
+                    }
+                ).show()
+            }
+        }
+        appsContainer.addView(createGroupBtn)
+    }
+
+    private fun buildGroupCard(
+        group: FocusGroup,
+        config: FocusConfig,
+        today: Long,
+        nowMs: Long,
+        isLocked: Boolean
+    ): View {
+        val cardLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = cardBackground("#111827", "#1E293B", cornerDp = 14)
+            val pad = dp(16)
+            setPadding(pad, pad, pad, pad)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(16) }
         }
 
-        // Pílula com a cor de marca do aplicativo
+        // Header Row: [Emoji + Nome + Badges] --- [⚙️ Limites] [Switch]
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val titleContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val titleView = TextView(this).apply {
+            text = "${group.iconEmoji} ${group.name}"
+            setTextColor(if (group.enabled) Color.parseColor("#F8FAFC") else Color.parseColor("#64748B"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        titleContainer.addView(titleView)
+
+        if (!group.enabled) {
+            val inactiveBadge = TextView(this).apply {
+                text = "Inativo"
+                setTextColor(Color.parseColor("#94A3B8"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                background = cardBackground("#334155", null, cornerDp = 4)
+                setPadding(dp(6), dp(2), dp(6), dp(2))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = dp(8) }
+            }
+            titleContainer.addView(inactiveBadge)
+        }
+
+        val groupUsage = store.getUsageState("group_${group.id}", today)
+        val isGroupCooldown = group.sharedQuota &&
+            groupUsage.cooldownUntilRealtimeMs > nowMs &&
+            (groupUsage.cooldownUntilRealtimeMs - nowMs) <= group.cooldownSeconds * 1000L
+
+        if (isGroupCooldown) {
+            val cooldownBadge = TextView(this).apply {
+                text = "⏳ Cooldown"
+                setTextColor(Color.parseColor("#FCA5A5"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                typeface = Typeface.DEFAULT_BOLD
+                background = cardBackground("#450A0A", "#DC2626", cornerDp = 6)
+                setPadding(dp(6), dp(2), dp(6), dp(2))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = dp(8) }
+            }
+            titleContainer.addView(cooldownBadge)
+        }
+
+        val configBtn = TextView(this).apply {
+            text = "⚙️ Limites"
+            setTextColor(Color.parseColor("#38BDF8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.DEFAULT_BOLD
+            background = interactiveCardBackground("#1E293B", "#334155", cornerDp = 8)
+            val padH = dp(10)
+            val padV = dp(6)
+            setPadding(padH, padV, padH, padV)
+            setOnClickListener { view ->
+                performHaptic(view)
+                GroupConfigDialog(
+                    context = this@MainActivity,
+                    group = group,
+                    isNewGroup = false,
+                    isLocked = isLocked,
+                    onSave = { updatedGroup ->
+                        val currentGroups = config.getEffectiveGroups().toMutableList()
+                        val idx = currentGroups.indexOfFirst { it.id == updatedGroup.id }
+                        if (idx >= 0) {
+                            currentGroups[idx] = updatedGroup
+                        } else {
+                            currentGroups.add(updatedGroup)
+                        }
+                        val allEnabled = currentGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
+                        updateConfig(config.copy(groups = currentGroups, enabledAppIds = allEnabled))
+                    },
+                    onDelete = { groupToDelete ->
+                        val currentGroups = config.getEffectiveGroups().filter { it.id != groupToDelete.id }
+                        val allEnabled = currentGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
+                        updateConfig(config.copy(groups = currentGroups, enabledAppIds = allEnabled))
+                    }
+                ).show()
+            }
+        }
+
+        val groupSwitch = Switch(this).apply {
+            isChecked = group.enabled
+            isEnabled = !isLocked
+            alpha = if (isLocked) 0.45f else 1.0f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8) }
+            setOnCheckedChangeListener { _, checked ->
+                val currentGroups = config.getEffectiveGroups().map { g ->
+                    if (g.id == group.id) g.copy(enabled = checked) else g
+                }
+                val allEnabled = currentGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
+                updateConfig(config.copy(groups = currentGroups, enabledAppIds = allEnabled))
+            }
+        }
+
+        headerRow.addView(titleContainer)
+        headerRow.addView(configBtn)
+        headerRow.addView(groupSwitch)
+
+        // Subtítulo e barra de progresso da cota
+        var groupUsedSec = if (group.sharedQuota) groupUsage.usedDailySeconds else 0L
+        for (appId in group.appIds) {
+            val u = store.getUsageState(appId, today)
+            if (group.sharedQuota) {
+                groupUsedSec = maxOf(groupUsedSec, u.usedDailySeconds)
+            } else {
+                groupUsedSec += u.usedDailySeconds
+            }
+        }
+        val groupUsedMin = groupUsedSec / 60L
+        val quotaMin = group.dailyQuotaMinutes
+
+        val quotaSubtitle = TextView(this).apply {
+            val modeText = if (group.sharedQuota) "Cota compartilhada" else "Cota individual"
+            text = "Hoje: ${groupUsedMin}/${quotaMin} min • $modeText • Sessão: ${group.sessionDurationMinutes}m • Pausa: ${group.mindfulPauseSeconds}s"
+            setTextColor(Color.parseColor("#94A3B8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, dp(8), 0, dp(4))
+        }
+
+        val quotaProgressTrack = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(4)
+            ).apply {
+                topMargin = dp(4)
+                bottomMargin = dp(12)
+            }
+            background = cardBackground("#1E293B", null, cornerDp = 2)
+        }
+
+        val ratio = if (quotaMin > 0) (groupUsedMin.toFloat() / quotaMin.toFloat()).coerceIn(0f, 1f) else 0f
+        val fillColor = when {
+            ratio >= 1.0f -> "#EF4444"
+            ratio >= 0.70f -> "#F59E0B"
+            else -> "#10B981"
+        }
+        val quotaProgressFill = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, ratio.coerceAtLeast(0.001f))
+            background = cardBackground(fillColor, null, cornerDp = 2)
+        }
+        val quotaProgressEmpty = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (1f - ratio).coerceAtLeast(0.001f))
+        }
+        quotaProgressTrack.addView(quotaProgressFill)
+        quotaProgressTrack.addView(quotaProgressEmpty)
+
+        // Lista de Apps dentro do grupo
+        val appsListLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        if (group.appIds.isEmpty()) {
+            val emptyAppsView = TextView(this).apply {
+                text = "Nenhum aplicativo adicionado neste grupo ainda."
+                setTextColor(Color.parseColor("#64748B"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(8), 0, dp(8))
+            }
+            appsListLayout.addView(emptyAppsView)
+        } else {
+            for (appId in group.appIds) {
+                val app = SocialAppCatalog.findById(appId, config.customApps)
+                    ?: TargetApp(
+                        id = appId,
+                        displayName = appId,
+                        packageNames = setOf(appId),
+                        brandColorHex = "#64748B",
+                        isCustom = true
+                    )
+                val appUsage = store.getUsageState(app.id, today)
+                val appUsedMin = appUsage.usedDailySeconds / 60L
+                val isAppCooldown = appUsage.cooldownUntilRealtimeMs > nowMs &&
+                    (appUsage.cooldownUntilRealtimeMs - nowMs) <= group.cooldownSeconds * 1000L
+
+                val appRow = buildGroupAppRow(
+                    app = app,
+                    usedMinutes = appUsedMin,
+                    sessionsToday = appUsage.sessionsStartedToday,
+                    isCooldown = isAppCooldown,
+                    isLocked = isLocked,
+                    onRemove = {
+                        val currentGroups = config.getEffectiveGroups().map { g ->
+                            if (g.id == group.id) {
+                                g.copy(appIds = g.appIds - app.id)
+                            } else g
+                        }
+                        val allEnabled = currentGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
+                        updateConfig(config.copy(groups = currentGroups, enabledAppIds = allEnabled))
+                    }
+                )
+                appsListLayout.addView(appRow)
+            }
+        }
+
+        val addAppsBtn = TextView(this).apply {
+            text = "+ Adicionar Aplicativos"
+            setTextColor(Color.parseColor("#38BDF8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = interactiveCardBackground("#1E293B", "#334155", cornerDp = 8)
+            val padH = dp(14)
+            val padV = dp(10)
+            setPadding(padH, padV, padH, padV)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(10)
+            }
+            isEnabled = !isLocked
+            alpha = if (isLocked) 0.45f else 1.0f
+            setOnClickListener { view ->
+                performHaptic(view)
+                AppPickerDialog(
+                    context = this@MainActivity,
+                    group = group,
+                    config = config,
+                    onAppsConfirmed = { selectedIds, allCustomApps ->
+                        val currentGroups = config.getEffectiveGroups().map { g ->
+                            if (g.id == group.id) {
+                                g.copy(appIds = selectedIds)
+                            } else {
+                                g.copy(appIds = g.appIds - selectedIds)
+                            }
+                        }
+                        val allEnabled = currentGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
+                        updateConfig(
+                            config.copy(
+                                groups = currentGroups,
+                                customApps = allCustomApps,
+                                enabledAppIds = allEnabled
+                            )
+                        )
+                    }
+                ).show()
+            }
+        }
+
+        cardLayout.addView(headerRow)
+        cardLayout.addView(quotaSubtitle)
+        cardLayout.addView(quotaProgressTrack)
+        cardLayout.addView(appsListLayout)
+        cardLayout.addView(addAppsBtn)
+
+        return cardLayout
+    }
+
+    private fun buildGroupAppRow(
+        app: TargetApp,
+        usedMinutes: Long,
+        sessionsToday: Int,
+        isCooldown: Boolean,
+        isLocked: Boolean,
+        onRemove: () -> Unit
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = cardBackground("#0F172A", "#1E293B", cornerDp = 8)
+            val padH = dp(12)
+            val padV = dp(8)
+            setPadding(padH, padV, padH, padV)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(6) }
+        }
+
         val brandDot = View(this).apply {
-            val size = dp(10)
+            val size = dp(8)
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                marginEnd = dp(12)
+                marginEnd = dp(10)
                 gravity = Gravity.CENTER_VERTICAL
             }
             background = GradientDrawable().apply {
@@ -490,7 +810,7 @@ class MainActivity : Activity() {
         val nameView = TextView(this).apply {
             text = app.displayName
             setTextColor(Color.parseColor("#F1F5F9"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.DEFAULT_BOLD
         }
         nameRow.addView(nameView)
@@ -501,87 +821,87 @@ class MainActivity : Activity() {
                 setTextColor(Color.parseColor("#FCA5A5"))
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                 typeface = Typeface.DEFAULT_BOLD
-                background = cardBackground("#450A0A", "#DC2626", cornerDp = 6)
-                setPadding(dp(6), dp(2), dp(6), dp(2))
+                background = cardBackground("#450A0A", "#DC2626", cornerDp = 4)
+                setPadding(dp(4), dp(2), dp(4), dp(2))
                 val params = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { marginStart = dp(8) }
+                ).apply { marginStart = dp(6) }
                 layoutParams = params
             }
             nameRow.addView(cooldownBadge)
         }
 
         val statsView = TextView(this).apply {
-            text = "Hoje: ${usedMinutes}/${quotaMinutes} min • $sessionsToday sessão(ões)"
+            text = "Hoje: ${usedMinutes} min • $sessionsToday sessão(ões)"
             setTextColor(if (isCooldown) Color.parseColor("#F87171") else Color.parseColor("#94A3B8"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setPadding(0, dp(2), 0, 0)
         }
-
-        // Barra de progresso nativa ultra-fina (4dp) indicando consumo da cota
-        val quotaProgressTrack = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(4)
-            ).apply {
-                topMargin = dp(6)
-            }
-            background = cardBackground("#1E293B", null, cornerDp = 2)
-        }
-
-        val ratio = if (quotaMinutes > 0) (usedMinutes.toFloat() / quotaMinutes.toFloat()).coerceIn(0f, 1f) else 0f
-        val quotaProgressFill = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, ratio.coerceAtLeast(0.001f))
-            val fillColor = when {
-                ratio >= 1.0f -> "#EF4444"
-                ratio >= 0.70f -> "#F59E0B"
-                else -> "#10B981"
-            }
-            background = cardBackground(fillColor, null, cornerDp = 2)
-        }
-        val quotaProgressEmpty = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (1f - ratio).coerceAtLeast(0.001f))
-        }
-        quotaProgressTrack.addView(quotaProgressFill)
-        quotaProgressTrack.addView(quotaProgressEmpty)
 
         textColumn.addView(nameRow)
         textColumn.addView(statsView)
-        textColumn.addView(quotaProgressTrack)
 
-        val toggle = Switch(this).apply {
-            this.isChecked = isChecked
+        val removeBtn = TextView(this).apply {
+            text = "✕"
+            setTextColor(Color.parseColor("#EF4444"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            val pad = dp(8)
+            setPadding(pad, pad, pad, pad)
             isEnabled = !isLocked
-            alpha = if (isLocked) 0.45f else 1.0f
-            setOnCheckedChangeListener { _, checked -> onToggle(checked) }
+            alpha = if (isLocked) 0.3f else 1.0f
+            setOnClickListener { view ->
+                performHaptic(view)
+                onRemove()
+            }
         }
 
         row.addView(brandDot)
         row.addView(textColumn)
-        row.addView(toggle)
+        row.addView(removeBtn)
+
         return row
+    }
+
+    private fun updateGlobalAndDefaultGroup(
+        config: FocusConfig,
+        transform: (FocusConfig) -> FocusConfig
+    ) {
+        val updated = transform(config)
+        val currentGroups = config.getEffectiveGroups().toMutableList()
+        val socialIdx = currentGroups.indexOfFirst { it.id == FocusGroup.DEFAULT_GROUP_SOCIAL_ID }
+        if (socialIdx >= 0) {
+            val social = currentGroups[socialIdx]
+            currentGroups[socialIdx] = social.copy(
+                mindfulPauseSeconds = updated.mindfulPauseSeconds,
+                sessionDurationMinutes = updated.sessionDurationMinutes,
+                cooldownMinutes = updated.cooldownMinutes,
+                dailyQuotaMinutes = updated.dailyQuotaMinutes,
+                progressivePauseEnabled = updated.progressivePauseEnabled
+            )
+        }
+        updateConfig(updated.copy(groups = currentGroups))
     }
 
     private fun renderParamsList(config: FocusConfig, isLocked: Boolean) {
         paramsContainer.removeAllViews()
 
-        // Fileira de Perfis Rápidos de Foco
+        // Fileira de Perfis Rápidos de Foco (aplica aos parâmetros padrão e Redes Sociais)
         paramsContainer.addView(buildPresetsRow(config, isLocked))
 
         paramsContainer.addView(
             buildStepperRow(
-                label = "Pausa Consciente Base ao Abrir",
+                label = "Pausa Consciente Base (Padrão)",
                 valueText = "${config.mindfulPauseSeconds} seg",
                 isLocked = isLocked,
                 onDecrement = {
                     val next = (config.mindfulPauseSeconds - 5).coerceAtLeast(5)
-                    updateConfig(config.copy(mindfulPauseSeconds = next))
+                    updateGlobalAndDefaultGroup(config) { it.copy(mindfulPauseSeconds = next) }
                 },
                 onIncrement = {
                     val next = (config.mindfulPauseSeconds + 5).coerceAtMost(60)
-                    updateConfig(config.copy(mindfulPauseSeconds = next))
+                    updateGlobalAndDefaultGroup(config) { it.copy(mindfulPauseSeconds = next) }
                 }
             )
         )
@@ -593,7 +913,7 @@ class MainActivity : Activity() {
                 isChecked = config.progressivePauseEnabled,
                 isLocked = isLocked,
                 onToggle = { enabled ->
-                    updateConfig(config.copy(progressivePauseEnabled = enabled))
+                    updateGlobalAndDefaultGroup(config) { it.copy(progressivePauseEnabled = enabled) }
                 }
             )
         )
@@ -613,60 +933,60 @@ class MainActivity : Activity() {
 
         paramsContainer.addView(
             buildStepperRow(
-                label = "Duração da Sessão Liberada",
+                label = "Duração da Sessão Liberada (Padrão)",
                 valueText = "${config.sessionDurationMinutes} min",
                 isLocked = isLocked,
                 onDecrement = {
                     val next = (config.sessionDurationMinutes - 1).coerceAtLeast(1)
-                    updateConfig(config.copy(sessionDurationMinutes = next))
+                    updateGlobalAndDefaultGroup(config) { it.copy(sessionDurationMinutes = next) }
                 },
                 onIncrement = {
                     val next = (config.sessionDurationMinutes + 1).coerceAtMost(30)
                     val coercedDailyQuota = maxOf(config.dailyQuotaMinutes, next)
-                    updateConfig(
-                        config.copy(
+                    updateGlobalAndDefaultGroup(config) {
+                        it.copy(
                             sessionDurationMinutes = next,
                             dailyQuotaMinutes = coercedDailyQuota
                         )
-                    )
+                    }
                 }
             )
         )
 
         paramsContainer.addView(
             buildStepperRow(
-                label = "Cooldown Pós-Sessão",
+                label = "Cooldown Pós-Sessão (Padrão)",
                 valueText = "${config.cooldownMinutes} min",
                 isLocked = isLocked,
                 onDecrement = {
                     val next = (config.cooldownMinutes - 5).coerceAtLeast(5)
-                    updateConfig(config.copy(cooldownMinutes = next))
+                    updateGlobalAndDefaultGroup(config) { it.copy(cooldownMinutes = next) }
                 },
                 onIncrement = {
                     val next = (config.cooldownMinutes + 5).coerceAtMost(60)
-                    updateConfig(config.copy(cooldownMinutes = next))
+                    updateGlobalAndDefaultGroup(config) { it.copy(cooldownMinutes = next) }
                 }
             )
         )
 
         paramsContainer.addView(
             buildStepperRow(
-                label = "Cota Máxima Diária por App",
+                label = "Cota Máxima Diária (Padrão)",
                 valueText = "${config.dailyQuotaMinutes} min",
                 isLocked = isLocked,
                 onDecrement = {
                     val next = (config.dailyQuotaMinutes - 5).coerceAtLeast(5)
                     val coercedSession = minOf(config.sessionDurationMinutes, next)
-                    updateConfig(
-                        config.copy(
+                    updateGlobalAndDefaultGroup(config) {
+                        it.copy(
                             dailyQuotaMinutes = next,
                             sessionDurationMinutes = coercedSession
                         )
-                    )
+                    }
                 },
                 onIncrement = {
                     val next = (config.dailyQuotaMinutes + 5).coerceAtMost(120)
-                    updateConfig(config.copy(dailyQuotaMinutes = next))
+                    updateGlobalAndDefaultGroup(config) { it.copy(dailyQuotaMinutes = next) }
                 }
             )
         )
@@ -838,7 +1158,7 @@ class MainActivity : Activity() {
                 setPadding(0, 0, 0, 0)
                 setOnClickListener { view ->
                     performHaptic(view)
-                    updateConfig(preset.applyTo(config))
+                    updateGlobalAndDefaultGroup(config) { preset.applyTo(it) }
                 }
             }
             chipsRow.addView(chip)

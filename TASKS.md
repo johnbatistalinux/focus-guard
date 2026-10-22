@@ -63,3 +63,11 @@
 - [x] Task 10.4: [Impl] Transform `MainActivity` with Bento-style 2x2 dashboard, 7-day pill calendar, one-tap focus presets, brand accents, and 4dp quota progress bars on app rows
 - [x] Task 10.5: [Gate] Verify JVM unit tests, compile release build, and confirm Zero-Bloat invariants
 
+## Milestone 11: v1.4.0 — Focus Limit Groups, Shared Quotas & Dynamic App Picker
+- [x] Task 11.1: [Docs] Update `PRODUCT.md`, `ARCHITECTURE.md`, and `TASKS.md` for Focus Groups, Shared Quotas, and Dynamic `<queries>` App Picker
+- [x] Task 11.2: [Domain] Introduce `FocusGroup`, expand `FocusConfig` & `InterventionAction`, dynamic catalog lookup in `SocialAppCatalog`, and group-aware policy & lock engine in `FocusPolicyEngine`
+- [x] Task 11.3: [Data] Compact delimiter-based group & custom app serialization and automatic migration in `FocusPreferencesStore`
+- [x] Task 11.4: [Test] Comprehensive JUnit 5 unit tests for shared group quotas, cooldown isolation, dynamic custom apps, and preferences store migration
+- [x] Task 11.5: [Service & A11y] Add `<queries>` launcher intent filter in `AndroidManifest.xml`, dynamic multi-group package filtering in `FocusAccessibilityService`, and group indicator in `OverlayController`
+- [x] Task 11.6: [UI] Implement `InstalledAppScanner`, native dark-themed `AppPickerDialog`, `GroupConfigDialog`, and group-centric dashboard cards in `MainActivity`
+- [x] Task 11.7: [Gate] Validate entire JVM test suite and compile release APK (`./gradlew test assembleRelease`)

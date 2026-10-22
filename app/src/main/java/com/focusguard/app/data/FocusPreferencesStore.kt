@@ -2,8 +2,10 @@ package com.focusguard.app.data
 
 import com.focusguard.app.domain.AppUsageState
 import com.focusguard.app.domain.FocusConfig
+import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusPolicyStore
 import com.focusguard.app.domain.FocusRewardState
+import com.focusguard.app.domain.TargetApp
 
 /**
  * Implementação ultraleve de [FocusPolicyStore] com cache em memória e Lazy Daily Reset.
@@ -37,30 +39,95 @@ class FocusPreferencesStore(
             FocusConfig.DEFAULT_ANCHOR_HABIT
         ).ifBlank { FocusConfig.DEFAULT_ANCHOR_HABIT }
 
+        val sharedQuotaDefault = backend.getBoolean(KEY_SHARED_QUOTA_DEFAULT, true)
+        val rawGroups = backend.getString(KEY_FOCUS_GROUPS_V1, "")
+        val rawCustomApps = backend.getString(KEY_CUSTOM_APPS_V1, "")
+
+        val deserializedGroups = if (rawGroups.isNotBlank()) deserializeGroups(rawGroups) else emptyList()
+        val effectiveGroups = if (deserializedGroups.isNotEmpty()) {
+            deserializedGroups
+        } else {
+            // Migração automática v1.3 -> v1.4 a partir das chaves legadas existentes
+            listOf(
+                FocusGroup(
+                    id = FocusGroup.DEFAULT_GROUP_SOCIAL_ID,
+                    name = "Redes Sociais",
+                    iconEmoji = "📱",
+                    enabled = true,
+                    appIds = enabledIds,
+                    mindfulPauseSeconds = pauseSec,
+                    sessionDurationMinutes = sessionMin,
+                    cooldownMinutes = cooldownMin,
+                    dailyQuotaMinutes = dailyQuotaMin,
+                    progressivePauseEnabled = progressivePause,
+                    sharedQuota = sharedQuotaDefault
+                ),
+                FocusGroup(
+                    id = FocusGroup.DEFAULT_GROUP_GAMES_ID,
+                    name = "Jogos & Outros",
+                    iconEmoji = "🎮",
+                    enabled = true,
+                    appIds = emptySet(),
+                    mindfulPauseSeconds = pauseSec,
+                    sessionDurationMinutes = sessionMin,
+                    cooldownMinutes = cooldownMin,
+                    dailyQuotaMinutes = dailyQuotaMin,
+                    progressivePauseEnabled = progressivePause,
+                    sharedQuota = sharedQuotaDefault
+                )
+            )
+        }
+
+        val customApps = if (rawCustomApps.isNotBlank()) deserializeCustomApps(rawCustomApps) else emptyList()
+        val activeGroupAppIds = effectiveGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
+        val allEnabledAppIds = if (activeGroupAppIds.isNotEmpty()) activeGroupAppIds else enabledIds
+
         val loaded = FocusConfig(
-            enabledAppIds = enabledIds,
+            enabledAppIds = allEnabledAppIds,
             mindfulPauseSeconds = pauseSec,
             sessionDurationMinutes = sessionMin,
             cooldownMinutes = cooldownMin,
             dailyQuotaMinutes = dailyQuotaMin,
             progressivePauseEnabled = progressivePause,
-            selectedAnchorHabit = anchorHabit
+            selectedAnchorHabit = anchorHabit,
+            groups = effectiveGroups,
+            customApps = customApps,
+            sharedQuotaEnabled = sharedQuotaDefault
         )
         cachedConfig = loaded
         return loaded
     }
 
     override fun saveConfig(config: FocusConfig) {
-        val immutableConfig = config.copy(enabledAppIds = config.enabledAppIds.toSet())
+        val effectiveGroups = config.getEffectiveGroups()
+        val activeGroupAppIds = effectiveGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
+        val primaryGroup = effectiveGroups.firstOrNull { it.id == FocusGroup.DEFAULT_GROUP_SOCIAL_ID }
+            ?: effectiveGroups.firstOrNull()
+
+        val pauseSec = primaryGroup?.mindfulPauseSeconds ?: config.mindfulPauseSeconds
+        val sessionMin = primaryGroup?.sessionDurationMinutes ?: config.sessionDurationMinutes
+        val cooldownMin = primaryGroup?.cooldownMinutes ?: config.cooldownMinutes
+        val dailyQuotaMin = primaryGroup?.dailyQuotaMinutes ?: config.dailyQuotaMinutes
+        val progPause = primaryGroup?.progressivePauseEnabled ?: config.progressivePauseEnabled
+
+        val immutableConfig = config.copy(
+            enabledAppIds = activeGroupAppIds,
+            groups = effectiveGroups,
+            customApps = config.customApps.toList()
+        )
         cachedConfig = immutableConfig
+
         backend.editBatch {
             putStringSet(KEY_ENABLED_APP_IDS, immutableConfig.enabledAppIds)
-            putInt(KEY_MINDFUL_PAUSE_SEC, immutableConfig.mindfulPauseSeconds)
-            putInt(KEY_SESSION_DURATION_MIN, immutableConfig.sessionDurationMinutes)
-            putInt(KEY_COOLDOWN_MIN, immutableConfig.cooldownMinutes)
-            putInt(KEY_DAILY_QUOTA_MIN, immutableConfig.dailyQuotaMinutes)
-            putBoolean(KEY_PROGRESSIVE_PAUSE_ENABLED, immutableConfig.progressivePauseEnabled)
+            putInt(KEY_MINDFUL_PAUSE_SEC, pauseSec)
+            putInt(KEY_SESSION_DURATION_MIN, sessionMin)
+            putInt(KEY_COOLDOWN_MIN, cooldownMin)
+            putInt(KEY_DAILY_QUOTA_MIN, dailyQuotaMin)
+            putBoolean(KEY_PROGRESSIVE_PAUSE_ENABLED, progPause)
             putString(KEY_SELECTED_ANCHOR_HABIT, immutableConfig.selectedAnchorHabit)
+            putString(KEY_FOCUS_GROUPS_V1, serializeGroups(effectiveGroups))
+            putString(KEY_CUSTOM_APPS_V1, serializeCustomApps(immutableConfig.customApps))
+            putBoolean(KEY_SHARED_QUOTA_DEFAULT, immutableConfig.sharedQuotaEnabled)
         }
     }
 
@@ -231,6 +298,96 @@ class FocusPreferencesStore(
     private fun keyCooldownUntil(appId: String): String = "usage_${appId}_cooldown_ms"
     private fun keySessionsToday(appId: String): String = "usage_${appId}_sessions_today"
 
+    private fun sanitizeField(value: String): String = value.replace("|", "_").replace("\n", " ").trim()
+
+    private fun serializeGroups(groups: List<FocusGroup>): String {
+        return groups.joinToString("\n") { group ->
+            val cleanId = sanitizeField(group.id)
+            val cleanName = sanitizeField(group.name)
+            val cleanEmoji = sanitizeField(group.iconEmoji)
+            val appIdsStr = group.appIds.joinToString(",") { sanitizeField(it) }
+            "$cleanId|$cleanName|$cleanEmoji|${group.enabled}|$appIdsStr|${group.mindfulPauseSeconds}|${group.sessionDurationMinutes}|${group.cooldownMinutes}|${group.dailyQuotaMinutes}|${group.progressivePauseEnabled}|${group.sharedQuota}"
+        }
+    }
+
+    private fun deserializeGroups(raw: String): List<FocusGroup> {
+        if (raw.isBlank()) return emptyList()
+        val result = ArrayList<FocusGroup>()
+        for (line in raw.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+            val parts = trimmed.split("|")
+            if (parts.size >= 11) {
+                val id = parts[0].trim()
+                val name = parts[1].trim()
+                if (id.isEmpty() || name.isEmpty()) continue
+                val emoji = parts[2].trim().ifEmpty { "📱" }
+                val enabled = parts[3].toBooleanStrictOrNull() ?: true
+                val appIds = if (parts[4].isBlank()) emptySet() else parts[4].split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                val pauseSec = parts[5].toIntOrNull()?.coerceIn(3, 120) ?: DEFAULT_PAUSE_SEC
+                val sessionMin = parts[6].toIntOrNull()?.coerceIn(1, 60) ?: DEFAULT_SESSION_MIN
+                val cooldownMin = parts[7].toIntOrNull()?.coerceIn(1, 180) ?: DEFAULT_COOLDOWN_MIN
+                val dailyQuotaMin = parts[8].toIntOrNull()?.coerceIn(5, 240) ?: DEFAULT_DAILY_QUOTA_MIN
+                val progressive = parts[9].toBooleanStrictOrNull() ?: true
+                val shared = parts[10].toBooleanStrictOrNull() ?: true
+
+                result.add(
+                    FocusGroup(
+                        id = id,
+                        name = name,
+                        iconEmoji = emoji,
+                        enabled = enabled,
+                        appIds = appIds,
+                        mindfulPauseSeconds = pauseSec,
+                        sessionDurationMinutes = sessionMin,
+                        cooldownMinutes = cooldownMin,
+                        dailyQuotaMinutes = dailyQuotaMin,
+                        progressivePauseEnabled = progressive,
+                        sharedQuota = shared
+                    )
+                )
+            }
+        }
+        return result
+    }
+
+    private fun serializeCustomApps(apps: List<TargetApp>): String {
+        return apps.joinToString("\n") { app ->
+            val cleanId = sanitizeField(app.id)
+            val cleanName = sanitizeField(app.displayName)
+            val pkgsStr = app.packageNames.joinToString(",") { sanitizeField(it) }
+            val cleanColor = sanitizeField(app.brandColorHex)
+            "$cleanId|$cleanName|$pkgsStr|$cleanColor"
+        }
+    }
+
+    private fun deserializeCustomApps(raw: String): List<TargetApp> {
+        if (raw.isBlank()) return emptyList()
+        val result = ArrayList<TargetApp>()
+        for (line in raw.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+            val parts = trimmed.split("|")
+            if (parts.size >= 4) {
+                val id = parts[0].trim()
+                val name = parts[1].trim()
+                if (id.isEmpty() || name.isEmpty()) continue
+                val pkgs = if (parts[2].isBlank()) emptySet() else parts[2].split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                val color = parts[3].trim().ifEmpty { "#38BDF8" }
+                result.add(
+                    TargetApp(
+                        id = id,
+                        displayName = name,
+                        packageNames = pkgs,
+                        brandColorHex = color,
+                        isCustom = true
+                    )
+                )
+            }
+        }
+        return result
+    }
+
     companion object {
         private const val KEY_ENABLED_APP_IDS = "cfg_enabled_app_ids"
         private const val KEY_MINDFUL_PAUSE_SEC = "cfg_mindful_pause_sec"
@@ -239,6 +396,10 @@ class FocusPreferencesStore(
         private const val KEY_DAILY_QUOTA_MIN = "cfg_daily_quota_min"
         private const val KEY_PROGRESSIVE_PAUSE_ENABLED = "cfg_progressive_pause"
         private const val KEY_SELECTED_ANCHOR_HABIT = "cfg_selected_anchor_habit"
+
+        private const val KEY_FOCUS_GROUPS_V1 = "cfg_focus_groups_v1"
+        private const val KEY_CUSTOM_APPS_V1 = "cfg_custom_apps_v1"
+        private const val KEY_SHARED_QUOTA_DEFAULT = "cfg_shared_quota_default"
 
         private const val KEY_REWARD_EPOCH_DAY = "reward_epoch_day"
         private const val KEY_REWARD_ATTEMPTS_TODAY = "reward_attempts_today"

@@ -2,7 +2,9 @@ package com.focusguard.app.data
 
 import com.focusguard.app.domain.AppUsageState
 import com.focusguard.app.domain.FocusConfig
+import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusRewardState
+import com.focusguard.app.domain.TargetApp
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -168,6 +170,79 @@ class FocusPreferencesStoreTest {
         assertEquals(4, rolledBack.trackedDaysCount)
         assertEquals(1800L, rolledBack.totalReclaimedSeconds)
         assertEquals(5, rolledBack.totalImpulsesBeaten)
+    }
+
+    @Test
+    fun `serializacao e recuperacao de grupos e apps customizados preserva todos os parametros`() {
+        val group1 = FocusGroup(
+            id = "grp_social",
+            name = "Redes Sociais",
+            iconEmoji = "📱",
+            enabled = true,
+            appIds = setOf("instagram", "tiktok"),
+            mindfulPauseSeconds = 12,
+            sessionDurationMinutes = 6,
+            cooldownMinutes = 15,
+            dailyQuotaMinutes = 40,
+            progressivePauseEnabled = true,
+            sharedQuota = true
+        )
+        val group2 = FocusGroup(
+            id = "grp_games",
+            name = "Jogos & Diversao",
+            iconEmoji = "🎮",
+            enabled = false,
+            appIds = setOf("custom_game1"),
+            mindfulPauseSeconds = 20,
+            sessionDurationMinutes = 15,
+            cooldownMinutes = 30,
+            dailyQuotaMinutes = 60,
+            progressivePauseEnabled = false,
+            sharedQuota = false
+        )
+        val customApp = TargetApp(
+            id = "custom_game1",
+            displayName = "Brawl Stars",
+            packageNames = setOf("com.supercell.brawlstars"),
+            brandColorHex = "#F59E0B",
+            isCustom = true
+        )
+
+        val config = FocusConfig(
+            groups = listOf(group1, group2),
+            customApps = listOf(customApp),
+            sharedQuotaEnabled = true
+        )
+        store.saveConfig(config)
+        store.invalidateConfigCache()
+
+        val reloaded = store.getConfig()
+        assertEquals(2, reloaded.groups.size)
+        assertEquals(group1, reloaded.groups[0])
+        assertEquals(group2, reloaded.groups[1])
+        assertEquals(1, reloaded.customApps.size)
+        assertEquals(customApp, reloaded.customApps[0])
+    }
+
+    @Test
+    fun `migracao automatica gera grupos padrao quando cfg_focus_groups_v1 nao existe`() {
+        backend.putStringSet("cfg_enabled_app_ids", setOf("youtube", "reddit"))
+        backend.putInt("cfg_mindful_pause_sec", 15)
+        backend.putInt("cfg_session_duration_min", 8)
+        backend.putInt("cfg_cooldown_min", 12)
+        backend.putInt("cfg_daily_quota_min", 50)
+        backend.putBoolean("cfg_progressive_pause", false)
+
+        val migrated = store.getConfig()
+        assertEquals(2, migrated.groups.size)
+        val social = migrated.groups.first { it.id == FocusGroup.DEFAULT_GROUP_SOCIAL_ID }
+        assertEquals(setOf("youtube", "reddit"), social.appIds)
+        assertEquals(15, social.mindfulPauseSeconds)
+        assertEquals(8, social.sessionDurationMinutes)
+        assertEquals(12, social.cooldownMinutes)
+        assertEquals(50, social.dailyQuotaMinutes)
+        assertEquals(false, social.progressivePauseEnabled)
+        assertTrue(social.sharedQuota)
     }
 
     private class FakeKeyValueBackend : KeyValueBackend {

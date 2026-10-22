@@ -8,7 +8,8 @@ data class TargetApp(
     val id: String,
     val displayName: String,
     val packageNames: Set<String>,
-    val brandColorHex: String = "#38BDF8"
+    val brandColorHex: String = "#38BDF8",
+    val isCustom: Boolean = false
 )
 
 /**
@@ -76,9 +77,24 @@ object SocialAppCatalog {
     }
 
     /**
-     * Busca o [TargetApp] correspondente a um nome de pacote do Android em O(1).
+     * Busca o [TargetApp] correspondente a um nome de pacote do Android em O(1),
+     * consultando primeiro o catálogo integrado e depois os [customApps] adicionados pelo usuário.
      */
-    fun findByPackageName(packageName: String): TargetApp? = packageToAppMap[packageName]
+    fun findByPackageName(packageName: String, customApps: Collection<TargetApp> = emptyList()): TargetApp? {
+        val builtin = packageToAppMap[packageName]
+        if (builtin != null) return builtin
+        return customApps.firstOrNull { packageName in it.packageNames }
+    }
+
+    /**
+     * Busca o [TargetApp] correspondente a um [appId],
+     * consultando primeiro o catálogo integrado e depois os [customApps].
+     */
+    fun findById(appId: String, customApps: Collection<TargetApp> = emptyList()): TargetApp? {
+        val builtin = SUPPORTED_APPS.firstOrNull { it.id == appId }
+        if (builtin != null) return builtin
+        return customApps.firstOrNull { it.id == appId }
+    }
 
     /**
      * Converte os IDs ou pacotes habilitados na lista completa de pacotes Android para filtro do sistema.
@@ -87,6 +103,27 @@ object SocialAppCatalog {
         val result = HashSet<String>()
         for (app in SUPPORTED_APPS) {
             if (app.id in enabledAppIds) {
+                result.addAll(app.packageNames)
+            }
+        }
+        return result
+    }
+
+    /**
+     * Converte os grupos ativos de uma [FocusConfig] na união de todos os pacotes Android
+     * que devem ser escutados pelo AccessibilityService do sistema operacional.
+     */
+    fun resolveAndroidPackagesForConfig(config: FocusConfig): Set<String> {
+        val activeGroups = config.getEffectiveGroups().filter { it.enabled }
+        val activeAppIds = activeGroups.flatMap { it.appIds }.toSet()
+        val result = HashSet<String>()
+        for (app in SUPPORTED_APPS) {
+            if (app.id in activeAppIds) {
+                result.addAll(app.packageNames)
+            }
+        }
+        for (app in config.customApps) {
+            if (app.id in activeAppIds) {
                 result.addAll(app.packageNames)
             }
         }

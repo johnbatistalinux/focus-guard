@@ -82,12 +82,17 @@ class OverlayController(
                         "Quebrando o impulso automático de abrir o feed..."
                     }
                 }
+                val quotaSubtitle = if (action.groupName.isNotBlank()) {
+                    "Cota restante hoje (${action.groupName}): ${formatDuration(action.remainingDailyQuotaSeconds)}"
+                } else {
+                    "Cota diária restante hoje: ${formatDuration(action.remainingDailyQuotaSeconds)}"
+                }
                 showOrUpdateBarrier(
                     title = "Respire fundo antes de abrir o ${action.displayName}",
                     subtitle = cue,
                     counterValue = if (action.readyToStartSession) "Pronto" else "${action.remainingPauseSeconds}s",
                     rewardBanner = action.rewardBannerText,
-                    quotaText = "Cota diária restante hoje: ${formatDuration(action.remainingDailyQuotaSeconds)}",
+                    quotaText = quotaSubtitle,
                     remainingQuotaSeconds = action.remainingDailyQuotaSeconds,
                     exitButtonLabel = action.anchorActionLabel,
                     showQuickMicroButton = action.allowQuickMicroSession,
@@ -99,13 +104,22 @@ class OverlayController(
                 removeFloatingPill()
                 isMindfulPauseActive = false
                 val isDailyExhausted = action.reason == BlockReason.DAILY_QUOTA_EXCEEDED
-                showOrUpdateBarrier(
-                    title = "${action.displayName} bloqueado",
-                    subtitle = if (isDailyExhausted) {
+                val blockSubtitle = if (isDailyExhausted) {
+                    if (action.groupName.isNotBlank()) {
+                        "Você atingiu seu limite máximo diário do grupo ${action.groupName}."
+                    } else {
                         "Você atingiu seu limite máximo diário para esta rede social."
+                    }
+                } else {
+                    if (action.groupName.isNotBlank()) {
+                        "Período de resfriamento (Cooldown) do grupo ${action.groupName} ativo."
                     } else {
                         "Período de resfriamento (Cooldown) pós-sessão ativo."
-                    },
+                    }
+                }
+                showOrUpdateBarrier(
+                    title = "${action.displayName} bloqueado",
+                    subtitle = blockSubtitle,
                     counterValue = if (isDailyExhausted) {
                         "Até amanhã"
                     } else {

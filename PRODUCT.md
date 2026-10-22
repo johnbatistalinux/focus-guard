@@ -74,18 +74,16 @@ Android smartphone user with 4 GB of RAM who wants to break the automatic *deep 
    - **Identity Anchor & Haptic Celebration:** The green exit button displays a personal goal chosen by the user and triggers `HapticFeedbackConstants.CONFIRM` upon resisting an impulse.
    - **Quick Micro-Session (1 min) & Voluntary Early-Exit Bonus:** Supports 1-minute sessions for quick replies and reduces Cooldown by 50% (or waives it completely if `< 60s` used) when the user voluntarily exits early.
    - **Resilient Bitmask Consistency (`Long`):** Tracks recent days within the daily goal using a single 64-bit integer (8 bytes), without wiping historical progress over a single slip.
-6. **Curated Fixed Catalog:** Avoids `QUERY_ALL_PACKAGES` permission by targeting official social media packages:
-   - Instagram (`com.instagram.android`)
-   - TikTok (`com.zhiliaoapp.musically` / `com.ss.android.ugc.trill`)
-   - YouTube (`com.google.android.youtube`)
-   - X / Twitter (`com.twitter.android`)
-   - Reddit (`com.reddit.frontpage`)
-   - Threads (`com.instagram.barcelona`)
-   - Facebook (`com.facebook.katana`)
-   - Kwai (`com.kwai.video`)
+6. **Hybrid Catalog & Zero-Bloat App Discovery (v1.4):**
+   - Combines a curated, zero-query catalog of popular social networks (Instagram, TikTok, YouTube, X/Twitter, Reddit, Threads, Facebook, Kwai) with **Dynamic App Selection**.
+   - Instead of the restricted and privacy-invasive `QUERY_ALL_PACKAGES` permission, declares `<queries>` with `android.intent.action.MAIN` + `android.intent.category.LAUNCHER`, allowing users to add any installed game, shopping app, or browser to custom focus groups while strictly preserving zero-bloat and Google Play policy compliance.
 7. **Tactile & Visual Mindfulness System (v1.3):**
    - **Visual Breathing Ring:** Smooth 4s inhalation/exhalation cycle using zero-allocation `ValueAnimator`.
    - **Bento Mastery Dashboard:** 2x2 grid highlighting mastery percentage, reclaimed time, and 7-day consistency pills.
    - **One-Tap Focus Presets:** Preconfigured profiles (*Equilíbrio*, *Foco Total*, *Desmame Leve*) with anti-bypass lock enforcement.
    - **App Brand Accents & Native Progress Bars:** Visual brand identity pills and 4dp quota gauges per app.
+8. **Focus Limit Groups & Shared Quotas (v1.4):**
+   - **Category-Based Grouping (`FocusGroup`):** Users organize apps into focused categories (e.g., *Redes Sociais*, *Jogos*, *Vídeos & Streaming*), each with independent timers (mindful pause, session duration, cooldown, daily quota).
+   - **Shared Quota Pool:** Apps in the same group share a unified daily quota. Spending time in any app in the group deducts from the group balance. Exhausting the group quota blocks all apps in that category while leaving others unaffected.
+   - **Shared Group Cooldown:** Exiting a session in one app places the entire group in cooldown, preventing impulse app-hopping (e.g. from Instagram directly into TikTok).
 
