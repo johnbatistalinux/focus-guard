@@ -162,8 +162,23 @@ class FocusPolicyEngine(
         // Se havia outra rede social com sessão ativa em primeiro plano, pausa-a no mapa por app
         val activeState = currentState as? EngineState.InActiveSession
         if (activeState != null && activeState.app.id != targetApp.id) {
+            val otherGroup = resolveGroupForApp(config, activeState.app.id)
+            val elapsedInSession = (activeState.initialSessionSeconds - activeState.remainingSessionSeconds).coerceAtLeast(0L)
+            val flushedUsedDaily = activeState.baseUsedDailySeconds + elapsedInSession
+            val flushedAppUsedDaily = activeState.baseAppUsedDailySeconds + elapsedInSession
+            val (usage, appUsage) = getEffectiveUsage(activeState.app.id, otherGroup, today, nowMs)
+            store.saveUsageState(usage.copy(usedDailySeconds = flushedUsedDaily))
+            if (appUsage != null) {
+                store.saveUsageState(appUsage.copy(usedDailySeconds = flushedAppUsedDaily))
+            }
             val pausedOther = if (!activeState.isPausedInBackground) {
-                activeState.copy(isPausedInBackground = true, pausedAtRealtimeMs = nowMs)
+                activeState.copy(
+                    initialSessionSeconds = activeState.remainingSessionSeconds,
+                    isPausedInBackground = true,
+                    pausedAtRealtimeMs = nowMs,
+                    baseUsedDailySeconds = flushedUsedDaily,
+                    baseAppUsedDailySeconds = flushedAppUsedDaily
+                )
             } else {
                 activeState
             }
@@ -213,6 +228,7 @@ class FocusPolicyEngine(
         if (existingSession != null && existingSession.remainingSessionSeconds > 0L) {
             val effectiveRemaining = minOf(existingSession.remainingSessionSeconds, remainingDailySeconds)
             val resumed = existingSession.copy(
+                initialSessionSeconds = effectiveRemaining,
                 remainingSessionSeconds = effectiveRemaining,
                 isPausedInBackground = false,
                 pausedAtRealtimeMs = 0L,
@@ -920,6 +936,7 @@ class FocusPolicyEngine(
 
                 val paused = if (!state.isPausedInBackground) {
                     state.copy(
+                        initialSessionSeconds = state.remainingSessionSeconds,
                         isPausedInBackground = true,
                         pausedAtRealtimeMs = nowMs,
                         baseUsedDailySeconds = flushedUsedDaily,

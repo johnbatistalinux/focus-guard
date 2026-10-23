@@ -21,6 +21,7 @@ import com.focusguard.app.data.FocusRuntime
 import com.focusguard.app.domain.FocusPolicyEngine
 import com.focusguard.app.domain.InterventionAction
 import com.focusguard.app.domain.SocialAppCatalog
+import java.lang.ref.WeakReference
 
 /**
  * Serviço de Acessibilidade Ultraleve do FocusGuard.
@@ -53,6 +54,9 @@ class FocusAccessibilityService : AccessibilityService() {
     private var isLauncherCacheInitialized = false
     private val cachedAppLaunchableState = HashMap<String, Boolean>(64)
     private var lastImeCacheRefreshMs = 0L
+    private var lastWindowSnapshotMs = 0L
+    private var cachedIsImeVisibleOnScreen = false
+    private val cachedNonAppWindowIds = HashSet<Int>(8)
 
     private var currentForegroundPackage: String? = null
     private var lastMonitoredPackage: String? = null
@@ -98,7 +102,7 @@ class FocusAccessibilityService : AccessibilityService() {
         )
         ticker = MainThreadTicker(onTick = ::handleSecondTick)
         registerScreenStateReceiver()
-        activeInstance = this
+        activeInstanceRef = WeakReference(this)
     }
 
     override fun onServiceConnected() {
@@ -154,8 +158,8 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        if (activeInstance === this) {
-            activeInstance = null
+        if (activeInstanceRef?.get() === this) {
+            activeInstanceRef = null
         }
         unregisterScreenStateReceiver()
         mainHandler.removeCallbacks(delayedDismissRunnable)
@@ -277,21 +281,33 @@ class FocusAccessibilityService : AccessibilityService() {
      */
     private fun isTransientWindowEvent(event: AccessibilityEvent): Boolean {
         val windowId = event.windowId
-        val interactiveWindows = runCatching { windows }.getOrNull() ?: return false
-        var isImeVisibleOnScreen = false
+        val now = SystemClock.elapsedRealtime()
 
-        for (window in interactiveWindows) {
-            if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
-                isImeVisibleOnScreen = true
+        if (now - lastWindowSnapshotMs > WINDOW_SNAPSHOT_TTL_MS) {
+            lastWindowSnapshotMs = now
+            val interactiveWindows = runCatching { windows }.getOrNull()
+            if (interactiveWindows != null) {
+                cachedNonAppWindowIds.clear()
+                var imeFound = false
+                for (window in interactiveWindows) {
+                    if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                        imeFound = true
+                    }
+                    if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) {
+                        cachedNonAppWindowIds.add(window.id)
+                    }
+                }
+                cachedIsImeVisibleOnScreen = imeFound
             }
-            if (windowId >= 0 && window.id == windowId && window.type != AccessibilityWindowInfo.TYPE_APPLICATION) {
-                return true
-            }
+        }
+
+        if (windowId >= 0 && windowId in cachedNonAppWindowIds) {
+            return true
         }
 
         // Se o teclado virtual está na tela e o evento não é de um app de rede social alvo,
         // trata-se de janela transitória gerada pelo ecossistema do IME ou sistema.
-        if (isImeVisibleOnScreen) {
+        if (cachedIsImeVisibleOnScreen) {
             val pkg = event.packageName?.toString().orEmpty()
             if (!isMonitoredPackage(pkg)) {
                 return true
@@ -455,21 +471,22 @@ class FocusAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val NOOP_PACKAGE_SENTINEL = "com.focusguard.app.noop"
+        private const val WINDOW_SNAPSHOT_TTL_MS = 300L
         private const val IME_CACHE_TTL_MS = 30_000L
         private const val HOME_EXIT_BOUNCE_GUARD_MS = 800L
         private const val CELEBRATION_DISMISS_DELAY_MS = 180L
 
         @Volatile
-        private var activeInstance: FocusAccessibilityService? = null
+        private var activeInstanceRef: WeakReference<FocusAccessibilityService>? = null
 
         /**
          * Permite que a `MainActivity` notifique o serviço em execução imediatamente ao salvar alterações,
          * sem precisar de BroadcastReceivers pesados.
          */
         fun notifyConfigUpdated() {
-            activeInstance?.reloadConfigAndFilter()
+            activeInstanceRef?.get()?.reloadConfigAndFilter()
         }
 
-        fun isServiceRunning(): Boolean = activeInstance != null
+        fun isServiceRunning(): Boolean = activeInstanceRef?.get() != null
     }
 }

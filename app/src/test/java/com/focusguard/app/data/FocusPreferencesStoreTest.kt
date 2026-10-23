@@ -245,6 +245,25 @@ class FocusPreferencesStoreTest {
         assertTrue(social.sharedQuota)
     }
 
+    @Test
+    fun `desativar todos os grupos nao ressuscita redes sociais padrao`() {
+        val disabledGroup = FocusGroup(
+            id = "grp_social",
+            name = "Redes Sociais",
+            iconEmoji = "📱",
+            enabled = false,
+            appIds = setOf("instagram", "tiktok")
+        )
+        val config = FocusConfig(
+            groups = listOf(disabledGroup)
+        )
+        store.saveConfig(config)
+        store.invalidateConfigCache()
+
+        val reloaded = store.getConfig()
+        assertTrue(reloaded.enabledAppIds.isEmpty(), "Enabled app IDs must be empty when all groups are disabled")
+    }
+
     private class FakeKeyValueBackend : KeyValueBackend {
         private val stringSets = mutableMapOf<String, Set<String>>()
         private val ints = mutableMapOf<String, Int>()

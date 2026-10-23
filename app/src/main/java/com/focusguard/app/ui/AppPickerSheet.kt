@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextUtils
 import android.text.TextWatcher
@@ -23,6 +25,7 @@ import com.focusguard.app.domain.TargetApp
 import com.focusguard.app.ui.FocusTheme.dp
 import com.focusguard.app.ui.FocusTheme.performConfirmHaptic
 import com.focusguard.app.ui.FocusTheme.performLightHaptic
+import java.util.concurrent.Executors
 
 /**
  * Native bottom sheet for filtering and selecting apps for a focus group (< 250 lines).
@@ -35,9 +38,11 @@ class AppPickerSheet(
     private val onAppsConfirmed: (selectedAppIds: Set<String>, allCustomApps: List<TargetApp>) -> Unit
 ) : BottomSheet(context) {
 
-    private val allApps: List<TargetApp> by lazy {
-        InstalledAppScanner.scanLaunchableApps(context, config.customApps)
-    }
+    private var allApps: List<TargetApp> = emptyList()
+    private var isLoading: Boolean = true
+    private val backgroundExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var searchDebounceRunnable: Runnable? = null
     private val selectedIds: MutableSet<String> = group.appIds.toMutableSet()
     private val otherGroupsByAppId: MutableMap<String, FocusGroup> = HashMap()
 
@@ -92,6 +97,7 @@ class AppPickerSheet(
             typeface = Typeface.DEFAULT_BOLD
             background = FocusTheme.flatRipple(FocusTheme.COLOR_ACCENT, cornerDp = 12, density = density)
             minHeight = dp(52)
+            isEnabled = false
             setOnClickListener { view ->
                 view.performConfirmHaptic()
                 val customAppsMap = config.customApps.associateBy { it.id }.toMutableMap()
@@ -109,12 +115,33 @@ class AppPickerSheet(
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                renderApps(s?.toString().orEmpty())
+                searchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+                val query = s?.toString().orEmpty()
+                val runnable = Runnable {
+                    if (!isLoading) {
+                        renderApps(query)
+                    }
+                }
+                searchDebounceRunnable = runnable
+                mainHandler.postDelayed(runnable, 200L)
             }
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        renderApps("")
+        listContainer.addView(createLoadingView())
+
+        val appContext = context.applicationContext
+        backgroundExecutor.execute {
+            val scanned = InstalledAppScanner.scanLaunchableApps(appContext, config.customApps)
+            mainHandler.post {
+                if (isShowing) {
+                    allApps = scanned
+                    isLoading = false
+                    confirmButton.isEnabled = true
+                    renderApps(searchInput.text?.toString().orEmpty())
+                }
+            }
+        }
     }
 
     private fun renderApps(query: String) {
@@ -157,6 +184,20 @@ class AppPickerSheet(
         text = title.uppercase(); setTextColor(FocusTheme.COLOR_TEXT_MUTED)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f); typeface = Typeface.DEFAULT_BOLD
         setPadding(0, dp(14), 0, dp(6))
+    }
+
+    private fun createLoadingView(): TextView = TextView(context).apply {
+        text = "Carregando aplicativos..."
+        setTextColor(FocusTheme.COLOR_TEXT_MUTED)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        gravity = Gravity.CENTER
+        setPadding(0, dp(24), 0, dp(24))
+    }
+
+    override fun onStop() {
+        searchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+        backgroundExecutor.shutdownNow()
+        super.onStop()
     }
 
     private fun createEmptyView(): TextView = TextView(context).apply {

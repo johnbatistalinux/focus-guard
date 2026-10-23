@@ -720,6 +720,63 @@ class FocusPolicyEngineTest {
         assertTrue(lockStatus.reasonMessage?.contains("Meu Jogo") == true)
     }
 
+    @Test
+    fun `pausar e retomar sessao multiplas vezes nao duplica contagem de cota diaria`() {
+        // Cota diária = 30 min (1800s), Sessão = 5 min (300s)
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+
+        // Segmento 1: Usa por 60 segundos
+        repeat(60) {
+            fakeTime.advanceSeconds(1)
+            val tick = engine.onSecondTick() as InterventionAction.ShowFloatingTimer
+            assertEquals(300L - (it + 1), tick.remainingSessionSeconds)
+            assertEquals(1800L - (it + 1), tick.remainingDailyQuotaSeconds)
+        }
+
+        // Sai para a Home por 20 segundos
+        engine.onWindowPackageChanged("com.android.launcher3")
+        fakeTime.advanceSeconds(20)
+
+        // Retoma o Instagram: restam 240s da sessão e 1740s da cota
+        val resume1 = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowFloatingTimer
+        assertEquals(240L, resume1.remainingSessionSeconds)
+        assertEquals(1740L, resume1.remainingDailyQuotaSeconds)
+
+        // Segmento 2: Usa por mais 60 segundos (total usado: 120s)
+        repeat(60) {
+            fakeTime.advanceSeconds(1)
+            val tick = engine.onSecondTick() as InterventionAction.ShowFloatingTimer
+            assertEquals(240L - (it + 1), tick.remainingSessionSeconds)
+            assertEquals(1740L - (it + 1), tick.remainingDailyQuotaSeconds)
+        }
+
+        // Sai para a Home pela 2ª vez por 15 segundos
+        engine.onWindowPackageChanged("com.android.launcher3")
+        fakeTime.advanceSeconds(15)
+
+        // Retoma o Instagram pela 2ª vez: restam 180s da sessão e 1680s da cota (1800 - 120)
+        val resume2 = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowFloatingTimer
+        assertEquals(180L, resume2.remainingSessionSeconds)
+        assertEquals(1680L, resume2.remainingDailyQuotaSeconds)
+
+        // Segmento 3: Usa por mais 30 segundos (total usado: 150s)
+        repeat(30) {
+            fakeTime.advanceSeconds(1)
+            val tick = engine.onSecondTick() as InterventionAction.ShowFloatingTimer
+            assertEquals(180L - (it + 1), tick.remainingSessionSeconds)
+            assertEquals(1680L - (it + 1), tick.remainingDailyQuotaSeconds)
+        }
+
+        // Verifica estado persistido no storage: 150 segundos exatos consumidos hoje
+        val finalUsage = fakeStore.getUsageState("instagram", fakeTime.currentEpochDay())
+        assertEquals(150L, finalUsage.usedDailySeconds)
+    }
+
     private class FakeTimeProvider(
         initialRealtimeMs: Long,
         initialEpochDay: Long

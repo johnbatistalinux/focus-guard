@@ -222,7 +222,15 @@ class MainActivity : Activity() {
         setPadding(0, dp(14), 0, dp(8))
     }
 
-    private fun openAccessibilitySettings() = startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    private fun openAccessibilitySettings() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }.recoverCatching {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+        }.onFailure {
+            Toast.makeText(this, "Não foi possível abrir as configurações de acessibilidade.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private fun openAnchorHabitSheet() {
         if (policyEngine.getSettingsLockStatus().isLocked) { notifyLockedAttempt(); return }

@@ -7,6 +7,7 @@ import com.focusguard.app.domain.FocusLimits
 import com.focusguard.app.domain.FocusPolicyStore
 import com.focusguard.app.domain.FocusRewardState
 import com.focusguard.app.domain.TargetApp
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Implementação ultraleve de [FocusPolicyStore] com cache em memória e Lazy Daily Reset.
@@ -22,8 +23,10 @@ class FocusPreferencesStore(
     private val backend: KeyValueBackend
 ) : FocusPolicyStore {
 
+    @Volatile
     private var cachedConfig: FocusConfig? = null
-    private val cachedUsageByApp = HashMap<String, AppUsageState>(8)
+    private val cachedUsageByApp = ConcurrentHashMap<String, AppUsageState>(8)
+    @Volatile
     private var cachedRewardState: FocusRewardState? = null
 
     override fun getConfig(): FocusConfig {
@@ -82,7 +85,7 @@ class FocusPreferencesStore(
 
         val customApps = if (rawCustomApps.isNotBlank()) deserializeCustomApps(rawCustomApps) else emptyList()
         val activeGroupAppIds = effectiveGroups.filter { it.enabled }.flatMap { it.appIds }.toSet()
-        val allEnabledAppIds = if (activeGroupAppIds.isNotEmpty()) activeGroupAppIds else enabledIds
+        val allEnabledAppIds = if (deserializedGroups.isNotEmpty()) activeGroupAppIds else enabledIds
 
         val loaded = FocusConfig(
             enabledAppIds = allEnabledAppIds,

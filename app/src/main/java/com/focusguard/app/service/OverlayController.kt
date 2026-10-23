@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
@@ -97,9 +98,12 @@ class OverlayController(
     }
 
     private fun renderMindfulPause(action: InterventionAction.ShowMindfulPause) {
-        if (barrierRootView == null) createAndAttachBarrierView()
-
-        updateKeepScreenOn(!action.readyToStartSession)
+        val keepScreenOn = !action.readyToStartSession
+        if (barrierRootView == null) {
+            createAndAttachBarrierView(initialKeepScreenOn = keepScreenOn)
+        } else {
+            updateKeepScreenOn(keepScreenOn)
+        }
 
         categoryTagText?.apply {
             visibility = View.VISIBLE
@@ -173,9 +177,12 @@ class OverlayController(
     }
 
     private fun renderHardBlock(action: InterventionAction.ShowHardBlock) {
-        if (barrierRootView == null) createAndAttachBarrierView()
+        if (barrierRootView == null) {
+            createAndAttachBarrierView(initialKeepScreenOn = false)
+        } else {
+            updateKeepScreenOn(false)
+        }
 
-        updateKeepScreenOn(false)
         stopBreathingAnimation()
 
         val isDailyExhausted = action.reason == BlockReason.DAILY_QUOTA_EXCEEDED
@@ -223,14 +230,24 @@ class OverlayController(
         }
     }
 
-    private fun createAndAttachBarrierView() {
-        val root = LinearLayout(context).apply {
+    private fun createAndAttachBarrierView(initialKeepScreenOn: Boolean = false) {
+        val root = object : LinearLayout(context) {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                    onExitToHomeClicked()
+                    return true
+                }
+                return super.dispatchKeyEvent(event)
+            }
+        }.apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setBackgroundColor(FocusTheme.COLOR_OVERLAY_BG)
             val padH = dp(24)
             val padV = dp(32)
             setPadding(padH, padV, padH, padV)
+            isFocusable = true
+            isFocusableInTouchMode = true
         }
         FocusTheme.applySystemWindowInsetsPadding(root, applyTop = true, applyBottom = true)
 
@@ -379,11 +396,18 @@ class OverlayController(
         root.addView(proceedBtn, btnParams)
         root.addView(quickMicroBtn)
 
+        val initialFlags = if (initialKeepScreenOn) {
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        } else {
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        }
+
         val windowParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            initialFlags,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.CENTER }
 
@@ -391,7 +415,7 @@ class OverlayController(
             windowManager.addView(root, windowParams)
             barrierRootView = root
             barrierWindowParams = windowParams
-            lastBarrierKeepScreenOn = false
+            lastBarrierKeepScreenOn = initialKeepScreenOn
             categoryTagText = catTag
             barrierTitleText = titleView
             breathingRingView = ringView
@@ -407,18 +431,17 @@ class OverlayController(
     }
 
     private fun updateKeepScreenOn(shouldKeepScreenOn: Boolean) {
-        if (lastBarrierKeepScreenOn != shouldKeepScreenOn) {
-            lastBarrierKeepScreenOn = shouldKeepScreenOn
-            val view = barrierRootView
-            val params = barrierWindowParams
-            if (view != null && params != null && view.isAttachedToWindow) {
-                params.flags = if (shouldKeepScreenOn) {
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                } else {
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                }
-                runCatching { windowManager.updateViewLayout(view, params) }
+        val view = barrierRootView ?: return
+        val params = barrierWindowParams ?: return
+        if (lastBarrierKeepScreenOn != shouldKeepScreenOn && view.isAttachedToWindow) {
+            params.flags = if (shouldKeepScreenOn) {
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            } else {
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            }
+            if (runCatching { windowManager.updateViewLayout(view, params) }.isSuccess) {
+                lastBarrierKeepScreenOn = shouldKeepScreenOn
             }
         }
     }
@@ -441,7 +464,11 @@ class OverlayController(
         secondaryProceedButton = null
         tertiaryQuickMicroButton = null
         isMindfulPauseActive = false
-        runCatching { windowManager.removeViewImmediate(view) }
+        runCatching {
+            if (view.isAttachedToWindow) {
+                windowManager.removeView(view)
+            }
+        }
     }
 
     private fun showOrUpdateFloatingPill(remainingSeconds: Long) {
@@ -521,7 +548,11 @@ class OverlayController(
         floatingPillText = null
         floatingPillParams = null
         lastPillStateKey = null
-        runCatching { windowManager.removeViewImmediate(pill) }
+        runCatching {
+            if (pill.isAttachedToWindow) {
+                windowManager.removeView(pill)
+            }
+        }
     }
 
     private fun startBreathingAnimation() {

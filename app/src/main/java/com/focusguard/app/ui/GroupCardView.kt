@@ -32,6 +32,7 @@ class GroupCardView(
 
     private val quotaProgressFill: View
     private val quotaProgressEmpty: View
+    private val subtitleContainer: LinearLayout
     private val expandableContainer: LinearLayout
     private var isExpanded: Boolean = false
 
@@ -89,13 +90,14 @@ class GroupCardView(
 
         val groupSwitch = Switch(context).apply {
             isChecked = group.enabled
-            isEnabled = !isLocked
             alpha = if (isLocked) 0.4f else 1.0f
-            setOnCheckedChangeListener { _, isChecked ->
-                onToggleEnabled(isChecked)
-            }
-            if (isLocked) {
-                setOnClickListener { onLockedActionAttempt() }
+            setOnCheckedChangeListener { buttonView, isChecked ->
+                if (isLocked) {
+                    buttonView.isChecked = !isChecked
+                    onLockedActionAttempt()
+                } else {
+                    onToggleEnabled(isChecked)
+                }
             }
         }
 
@@ -104,7 +106,7 @@ class GroupCardView(
         addView(headerRow)
 
         // Quota Text & Rule Summary
-        val subtitleLayout = LinearLayout(context).apply {
+        subtitleContainer = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(0, dp(4), 0, dp(6))
         }
@@ -127,7 +129,7 @@ class GroupCardView(
         quotaProgressTrack.addView(quotaProgressFill)
         quotaProgressTrack.addView(quotaProgressEmpty)
 
-        addView(subtitleLayout)
+        addView(subtitleContainer)
         addView(quotaProgressTrack)
 
         // Expandable Container
@@ -163,8 +165,7 @@ class GroupCardView(
         quotaProgressEmpty.layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, (1f - ratio).coerceAtLeast(0.001f))
 
         // 2. Subtitle update
-        val subtitleLayout = getChildAt(1) as LinearLayout
-        subtitleLayout.removeAllViews()
+        subtitleContainer.removeAllViews()
 
         val progressRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -201,7 +202,7 @@ class GroupCardView(
             }
             progressRow.addView(exhaustedBadge)
         }
-        subtitleLayout.addView(progressRow)
+        subtitleContainer.addView(progressRow)
 
         val ruleText = TextView(context).apply {
             text = "${group.sessionDurationMinutes} min por sessão · pausa de ${group.mindfulPauseSeconds} s · espera de ${group.cooldownMinutes} min"
@@ -209,7 +210,7 @@ class GroupCardView(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setPadding(0, dp(2), 0, 0)
         }
-        subtitleLayout.addView(ruleText)
+        subtitleContainer.addView(ruleText)
 
         // 3. Populate Expandable Apps & Action Buttons
         expandableContainer.removeAllViews()
