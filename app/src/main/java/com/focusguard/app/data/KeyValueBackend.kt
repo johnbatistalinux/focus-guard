@@ -59,6 +59,30 @@ class SharedPreferencesBackend(
     private val prefs: SharedPreferences
 ) : KeyValueBackend {
 
+    private val reusableBatchEditor = object : BatchEditor {
+        var activeEditor: SharedPreferences.Editor? = null
+
+        override fun putStringSet(key: String, values: Set<String>) {
+            activeEditor?.putStringSet(key, HashSet(values))
+        }
+
+        override fun putInt(key: String, value: Int) {
+            activeEditor?.putInt(key, value)
+        }
+
+        override fun putLong(key: String, value: Long) {
+            activeEditor?.putLong(key, value)
+        }
+
+        override fun putBoolean(key: String, value: Boolean) {
+            activeEditor?.putBoolean(key, value)
+        }
+
+        override fun putString(key: String, value: String) {
+            activeEditor?.putString(key, value)
+        }
+    }
+
     override fun getStringSet(key: String, defaultValues: Set<String>): Set<String> {
         val stored = prefs.getStringSet(key, null) ?: return defaultValues
         return HashSet(stored)
@@ -98,28 +122,12 @@ class SharedPreferencesBackend(
 
     override fun editBatch(block: BatchEditor.() -> Unit) {
         val editor = prefs.edit()
-        val batch = object : BatchEditor {
-            override fun putStringSet(key: String, values: Set<String>) {
-                editor.putStringSet(key, HashSet(values))
-            }
-
-            override fun putInt(key: String, value: Int) {
-                editor.putInt(key, value)
-            }
-
-            override fun putLong(key: String, value: Long) {
-                editor.putLong(key, value)
-            }
-
-            override fun putBoolean(key: String, value: Boolean) {
-                editor.putBoolean(key, value)
-            }
-
-            override fun putString(key: String, value: String) {
-                editor.putString(key, value)
-            }
+        reusableBatchEditor.activeEditor = editor
+        try {
+            reusableBatchEditor.block()
+        } finally {
+            reusableBatchEditor.activeEditor = null
         }
-        batch.block()
         editor.apply()
     }
 

@@ -31,7 +31,11 @@ class FocusPolicyEngine(
             val remainingSessionSeconds: Long,
             val isQuickMicroSession: Boolean = false,
             val isPausedInBackground: Boolean = false,
-            val pausedAtRealtimeMs: Long = 0L
+            val pausedAtRealtimeMs: Long = 0L,
+            val baseUsedDailySeconds: Long = 0L,
+            val baseAppUsedDailySeconds: Long = 0L,
+            val baseGroupCooldownUntilMs: Long = 0L,
+            val baseAppCooldownUntilMs: Long = 0L
         ) : EngineState
 
         data class InHardBlock(
@@ -169,7 +173,7 @@ class FocusPolicyEngine(
 
         purgeExpiredBackgroundSessions(nowMs, today, config)
 
-        val (usage, _) = getEffectiveUsage(targetApp.id, activeGroup, today, nowMs)
+        val (usage, appUsage) = getEffectiveUsage(targetApp.id, activeGroup, today, nowMs)
         val gName = groupDisplayName(activeGroup)
 
         // 1. Verifica se a Cota Diária já esgotou
@@ -211,7 +215,11 @@ class FocusPolicyEngine(
             val resumed = existingSession.copy(
                 remainingSessionSeconds = effectiveRemaining,
                 isPausedInBackground = false,
-                pausedAtRealtimeMs = 0L
+                pausedAtRealtimeMs = 0L,
+                baseUsedDailySeconds = usage.usedDailySeconds,
+                baseAppUsedDailySeconds = appUsage?.usedDailySeconds ?: usage.usedDailySeconds,
+                baseGroupCooldownUntilMs = usage.cooldownUntilRealtimeMs,
+                baseAppCooldownUntilMs = appUsage?.cooldownUntilRealtimeMs ?: 0L
             )
             pausedSessionsByAppId.remove(targetApp.id)
             currentState = resumed
@@ -358,7 +366,11 @@ class FocusPolicyEngine(
             initialSessionSeconds = sessionSeconds,
             remainingSessionSeconds = sessionSeconds,
             isQuickMicroSession = isQuickMicroSession,
-            isPausedInBackground = false
+            isPausedInBackground = false,
+            baseUsedDailySeconds = usage.usedDailySeconds,
+            baseAppUsedDailySeconds = appUsage?.usedDailySeconds ?: usage.usedDailySeconds,
+            baseGroupCooldownUntilMs = usage.cooldownUntilRealtimeMs,
+            baseAppCooldownUntilMs = appUsage?.cooldownUntilRealtimeMs ?: 0L
         )
 
         return InterventionAction.ShowFloatingTimer(
@@ -440,10 +452,13 @@ class FocusPolicyEngine(
         }
         val cooldownUntil = if (discountedCooldownMs > 0L) nowMs + discountedCooldownMs else 0L
 
+        val flushedUsedDaily = state.baseUsedDailySeconds + elapsedSessionSeconds
+        val flushedAppUsedDaily = state.baseAppUsedDailySeconds + elapsedSessionSeconds
+
         val (usage, appUsage) = getEffectiveUsage(state.app.id, group, today, nowMs)
-        store.saveUsageState(usage.copy(cooldownUntilRealtimeMs = cooldownUntil))
+        store.saveUsageState(usage.copy(usedDailySeconds = flushedUsedDaily, cooldownUntilRealtimeMs = cooldownUntil))
         if (appUsage != null) {
-            store.saveUsageState(appUsage.copy(cooldownUntilRealtimeMs = cooldownUntil))
+            store.saveUsageState(appUsage.copy(usedDailySeconds = flushedAppUsedDaily, cooldownUntilRealtimeMs = cooldownUntil))
         }
 
         pausedSessionsByAppId.remove(state.app.id)
@@ -488,9 +503,10 @@ class FocusPolicyEngine(
                 }
 
                 val group = resolveGroupForApp(config, state.app.id)
-                val (usage, appUsage) = getEffectiveUsage(state.app.id, group, today, nowMs)
-                val newUsedDaily = usage.usedDailySeconds + 1L
                 val newRemainingSession = state.remainingSessionSeconds - 1L
+                val elapsedInSession = (state.initialSessionSeconds - newRemainingSession).coerceAtLeast(0L)
+                val newUsedDaily = state.baseUsedDailySeconds + elapsedInSession
+                val newAppUsedDaily = state.baseAppUsedDailySeconds + elapsedInSession
                 val newRemainingDaily = (group.dailyQuotaSeconds - newUsedDaily).coerceAtLeast(0L)
                 val gName = groupDisplayName(group)
 
@@ -502,6 +518,7 @@ class FocusPolicyEngine(
                         group.cooldownSeconds * 1000L
                     }
                     val cooldownUntil = nowMs + cooldownDurationMs
+                    val (usage, appUsage) = getEffectiveUsage(state.app.id, group, today, nowMs)
                     store.saveUsageState(
                         usage.copy(
                             usedDailySeconds = newUsedDaily,
@@ -511,7 +528,7 @@ class FocusPolicyEngine(
                     if (appUsage != null) {
                         store.saveUsageState(
                             appUsage.copy(
-                                usedDailySeconds = appUsage.usedDailySeconds + 1L,
+                                usedDailySeconds = newAppUsedDaily,
                                 cooldownUntilRealtimeMs = cooldownUntil
                             )
                         )
@@ -528,9 +545,12 @@ class FocusPolicyEngine(
                     }
                     InterventionAction.KickToHome(appId = state.app.id, reason = reason)
                 } else {
-                    store.saveUsageState(usage.copy(usedDailySeconds = newUsedDaily))
-                    if (appUsage != null) {
-                        store.saveUsageState(appUsage.copy(usedDailySeconds = appUsage.usedDailySeconds + 1L))
+                    if (elapsedInSession % USAGE_FLUSH_INTERVAL_SECONDS == 0L) {
+                        val (usage, appUsage) = getEffectiveUsage(state.app.id, group, today, nowMs)
+                        store.saveUsageState(usage.copy(usedDailySeconds = newUsedDaily))
+                        if (appUsage != null) {
+                            store.saveUsageState(appUsage.copy(usedDailySeconds = newAppUsedDaily))
+                        }
                     }
                     currentState = state.copy(remainingSessionSeconds = newRemainingSession)
                     InterventionAction.ShowFloatingTimer(
@@ -825,7 +845,8 @@ class FocusPolicyEngine(
             rewardBannerText = formatOverlayRewardBanner(reward),
             reclaimedMinutesOnAbort = effectiveReclaimedMin,
             allowQuickMicroSession = allowMicro,
-            groupName = groupDisplayName(group)
+            groupName = groupDisplayName(group),
+            sessionDurationMinutes = group.sessionDurationMinutes
         )
     }
 
@@ -883,10 +904,26 @@ class FocusPolicyEngine(
     private fun handleExitToNonMonitoredApp(): InterventionAction {
         when (val state = currentState) {
             is EngineState.InActiveSession -> {
+                val config = store.getConfig()
+                val group = resolveGroupForApp(config, state.app.id)
+                val today = timeProvider.currentEpochDay()
+                val nowMs = timeProvider.elapsedRealtimeMs()
+                val elapsedInSession = (state.initialSessionSeconds - state.remainingSessionSeconds).coerceAtLeast(0L)
+                val flushedUsedDaily = state.baseUsedDailySeconds + elapsedInSession
+                val flushedAppUsedDaily = state.baseAppUsedDailySeconds + elapsedInSession
+
+                val (usage, appUsage) = getEffectiveUsage(state.app.id, group, today, nowMs)
+                store.saveUsageState(usage.copy(usedDailySeconds = flushedUsedDaily))
+                if (appUsage != null) {
+                    store.saveUsageState(appUsage.copy(usedDailySeconds = flushedAppUsedDaily))
+                }
+
                 val paused = if (!state.isPausedInBackground) {
                     state.copy(
                         isPausedInBackground = true,
-                        pausedAtRealtimeMs = timeProvider.elapsedRealtimeMs()
+                        pausedAtRealtimeMs = nowMs,
+                        baseUsedDailySeconds = flushedUsedDaily,
+                        baseAppUsedDailySeconds = flushedAppUsedDaily
                     )
                 } else {
                     state
@@ -924,6 +961,7 @@ class FocusPolicyEngine(
         private const val PROGRESSIVE_PAUSE_STEP_SECONDS = 5
         private const val MAX_PROGRESSIVE_PAUSE_SECONDS = 60
         private const val QUICK_MICRO_SESSION_SECONDS = 60L
+        private const val USAGE_FLUSH_INTERVAL_SECONDS = 15L
     }
 }
 

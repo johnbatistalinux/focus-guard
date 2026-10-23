@@ -2,4 +2,49 @@
 <resources>
     <string name="app_name">FocusGuard</string>
     <string name="accessibility_service_description">Intercepta a abertura de redes sociais selecionadas para inserir uma pausa consciente e controlar sessões de uso sem consumir memória em segundo plano.</string>
+
+    <!-- Header & Service Callouts -->
+    <string name="status_protected">Proteção ativa</string>
+    <string name="status_inactive">Inativo</string>
+    <string name="service_callout_title">Serviço de acessibilidade desativado</string>
+    <string name="service_callout_subtitle">Ative o serviço para habilitar a barreira de foco e a contagem de tempo.</string>
+    <string name="service_callout_action">Ativar Serviço de Acessibilidade</string>
+    <string name="lock_banner_title">Configurações em modo somente leitura</string>
+
+    <!-- Summary Section -->
+    <string name="summary_title">Resumo do dia</string>
+    <string name="summary_mastery_label">Domínio hoje</string>
+    <string name="summary_reclaimed_label">Tempo resgatado</string>
+    <string name="summary_consistency_label">Consistência recente</string>
+
+    <!-- Groups Section -->
+    <string name="groups_title">Grupos de limites</string>
+    <string name="create_group_action">+ Criar novo grupo</string>
+    <string name="group_adjust_limits">Ajustar limites</string>
+    <string name="group_add_apps">+ Aplicativos</string>
+    <string name="group_empty_prompt">Nenhum aplicativo adicionado neste grupo ainda.</string>
+    <string name="group_cooldown_badge">Espera</string>
+    <string name="group_quota_exhausted_badge">Cota esgotada</string>
+    <string name="group_inactive_badge">Inativo</string>
+
+    <!-- Preferences Section -->
+    <string name="preferences_title">Preferências</string>
+    <string name="anchor_habit_label">Hábito âncora do botão verde</string>
+    <string name="anchor_habit_action">Trocar</string>
+
+    <!-- Common Dialog / Sheet Actions -->
+    <string name="action_save">Salvar alterações</string>
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_delete_group">Excluir categoria</string>
+    <string name="action_delete_confirm">Confirmar exclusão?</string>
+    <string name="action_confirm">Confirmar</string>
+    <string name="search_apps_hint">Buscar aplicativo ou jogo...</string>
+
+    <!-- Overlay Strings -->
+    <string name="overlay_ready">Pronto</string>
+    <string name="overlay_until_tomorrow">Até amanhã</string>
+    <string name="overlay_breathe_ready">Pausa concluída. Você realmente precisa entrar agora?</string>
+    <string name="overlay_action_micro">Resposta rápida (1 min)</string>
+    <string name="overlay_action_waiting">Aguarde a pausa terminar...</string>
+    <string name="overlay_return_home">Voltar para o início</string>
 </resources>

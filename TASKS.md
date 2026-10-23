@@ -71,3 +71,11 @@
 - [x] Task 11.5: [Service & A11y] Add `<queries>` launcher intent filter in `AndroidManifest.xml`, dynamic multi-group package filtering in `FocusAccessibilityService`, and group indicator in `OverlayController`
 - [x] Task 11.6: [UI] Implement `InstalledAppScanner`, native dark-themed `AppPickerDialog`, `GroupConfigDialog`, and group-centric dashboard cards in `MainActivity`
 - [x] Task 11.7: [Gate] Validate entire JVM test suite and compile release APK (`./gradlew test assembleRelease`)
+
+## Milestone 12: v1.5.0 — Flat & Accessible Dark UI/UX Overhaul
+- [x] Task 12.1: [Phase 0 - Domain & Specs] Sync Triad docs (`PRODUCT.md`, `ARCHITECTURE.md`, `TASKS.md`), bump version to 1.5.0, audit anchor habit persistence, implement `FocusLimits.kt` + tests, and produce approved visual mockups
+- [x] Task 12.2: [Phase 1 - UI Foundation] Implement `FocusTheme.kt`, `themes.xml`, `strings.xml`, `BottomSheet.kt`, and split `MainActivity.kt` foundation
+- [x] Task 12.3: [Phase 2 - Main Screen] Implement `SummaryCardView.kt`, `GroupCardView.kt`, and `AnchorHabitSheet.kt` in `MainActivity.kt`
+- [x] Task 12.4: [Phase 3a - Group & Picker Sheets] Implement `GroupConfigSheet.kt` and `AppPickerSheet.kt`, replacing legacy dialogs
+- [x] Task 12.5: [Phase 3b - Overlay Redesign] Overhaul `OverlayController.kt` (flat mindful pause, thumb-zone CTAs, clean hard block, borderless pill, edge-to-edge insets)
+- [x] Task 12.6: [Gate - Verification & Release] Run JVM unit tests, audit APK size (< 1.5 MB), check memory footprint (< 12 MB RAM), and assemble release build

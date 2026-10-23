@@ -31,10 +31,10 @@ data class FocusGroup(
     init {
         require(id.isNotBlank()) { "id do grupo não pode ser vazio." }
         require(name.isNotBlank()) { "name do grupo não pode ser vazio." }
-        require(mindfulPauseSeconds in 3..120) { "mindfulPauseSeconds deve estar entre 3 e 120s." }
-        require(sessionDurationMinutes in 1..60) { "sessionDurationMinutes deve estar entre 1 e 60 min." }
-        require(cooldownMinutes in 1..180) { "cooldownMinutes deve estar entre 1 e 180 min." }
-        require(dailyQuotaMinutes in 5..240) { "dailyQuotaMinutes deve estar entre 5 e 240 min." }
+        require(mindfulPauseSeconds in FocusLimits.PAUSE_SECONDS) { "mindfulPauseSeconds deve estar entre ${FocusLimits.PAUSE_SECONDS.first} e ${FocusLimits.PAUSE_SECONDS.last}s." }
+        require(sessionDurationMinutes in FocusLimits.SESSION_MINUTES) { "sessionDurationMinutes deve estar entre ${FocusLimits.SESSION_MINUTES.first} e ${FocusLimits.SESSION_MINUTES.last} min." }
+        require(cooldownMinutes in FocusLimits.COOLDOWN_MINUTES) { "cooldownMinutes deve estar entre ${FocusLimits.COOLDOWN_MINUTES.first} e ${FocusLimits.COOLDOWN_MINUTES.last} min." }
+        require(dailyQuotaMinutes in FocusLimits.DAILY_QUOTA_MINUTES) { "dailyQuotaMinutes deve estar entre ${FocusLimits.DAILY_QUOTA_MINUTES.first} e ${FocusLimits.DAILY_QUOTA_MINUTES.last} min." }
     }
 
     val sessionDurationSeconds: Long get() = sessionDurationMinutes * 60L
@@ -74,10 +74,10 @@ data class FocusConfig(
     val sharedQuotaEnabled: Boolean = true
 ) {
     init {
-        require(mindfulPauseSeconds in 3..120) { "mindfulPauseSeconds deve estar entre 3 e 120 segundos." }
-        require(sessionDurationMinutes in 1..60) { "sessionDurationMinutes deve estar entre 1 e 60 minutos." }
-        require(cooldownMinutes in 1..180) { "cooldownMinutes deve estar entre 1 e 180 minutos." }
-        require(dailyQuotaMinutes in 5..240) { "dailyQuotaMinutes deve estar entre 5 e 240 minutos." }
+        require(mindfulPauseSeconds in FocusLimits.PAUSE_SECONDS) { "mindfulPauseSeconds deve estar entre ${FocusLimits.PAUSE_SECONDS.first} e ${FocusLimits.PAUSE_SECONDS.last} segundos." }
+        require(sessionDurationMinutes in FocusLimits.SESSION_MINUTES) { "sessionDurationMinutes deve estar entre ${FocusLimits.SESSION_MINUTES.first} e ${FocusLimits.SESSION_MINUTES.last} minutos." }
+        require(cooldownMinutes in FocusLimits.COOLDOWN_MINUTES) { "cooldownMinutes deve estar entre ${FocusLimits.COOLDOWN_MINUTES.first} e ${FocusLimits.COOLDOWN_MINUTES.last} minutos." }
+        require(dailyQuotaMinutes in FocusLimits.DAILY_QUOTA_MINUTES) { "dailyQuotaMinutes deve estar entre ${FocusLimits.DAILY_QUOTA_MINUTES.first} e ${FocusLimits.DAILY_QUOTA_MINUTES.last} minutos." }
         require(selectedAnchorHabit.isNotBlank()) { "selectedAnchorHabit não pode ser vazio." }
     }
 
@@ -212,6 +212,12 @@ enum class FocusPreset(
         cooldownMinutes = cooldownMinutes,
         dailyQuotaMinutes = dailyQuotaMinutes
     )
+
+    fun matches(pauseSec: Int, sessionMin: Int, cooldownMin: Int, quotaMin: Int): Boolean =
+        mindfulPauseSeconds == pauseSec &&
+            sessionDurationMinutes == sessionMin &&
+            cooldownMinutes == cooldownMin &&
+            dailyQuotaMinutes == quotaMin
 }
 
 /**
@@ -317,7 +323,8 @@ sealed interface InterventionAction {
         val rewardBannerText: String = "",
         val reclaimedMinutesOnAbort: Int = 5,
         val allowQuickMicroSession: Boolean = false,
-        val groupName: String = ""
+        val groupName: String = "",
+        val sessionDurationMinutes: Int = 15
     ) : InterventionAction
 
     /** Sessão liberada em andamento: exibe apenas a pílula flutuante discreta no canto da tela. */

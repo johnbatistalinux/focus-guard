@@ -50,6 +50,7 @@ class FocusAccessibilityService : AccessibilityService() {
     private var isScreenReceiverRegistered = false
     private val cachedImePackages = HashSet<String>(16)
     private val cachedLauncherPackages = HashSet<String>(4)
+    private var isLauncherCacheInitialized = false
     private val cachedAppLaunchableState = HashMap<String, Boolean>(64)
     private var lastImeCacheRefreshMs = 0L
 
@@ -300,15 +301,17 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private fun isHomeLauncherPackage(pkgName: String): Boolean {
-        if (pkgName in cachedLauncherPackages) return true
-        runCatching {
-            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-            val resolveInfoList = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-            for (resolveInfo in resolveInfoList) {
-                val p = resolveInfo.activityInfo?.packageName
-                if (!p.isNullOrBlank()) {
-                    cachedLauncherPackages.add(p)
+        if (!isLauncherCacheInitialized) {
+            runCatching {
+                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                val resolveInfoList = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                for (resolveInfo in resolveInfoList) {
+                    val p = resolveInfo.activityInfo?.packageName
+                    if (!p.isNullOrBlank()) {
+                        cachedLauncherPackages.add(p)
+                    }
                 }
+                isLauncherCacheInitialized = true
             }
         }
         return pkgName in cachedLauncherPackages
@@ -330,34 +333,38 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private fun isTransientPackageOrWindow(pkgName: String, clsName: String?, event: AccessibilityEvent): Boolean {
-        // 1. Verificações rápidas: janelas de acessibilidade, classes e IMEs conhecidos
-        if (isTransientWindowEvent(event) ||
-            isSystemInputMethodPackage(pkgName) ||
+        // 1. Caminho ultra-rápido em O(1): Se for uma das redes sociais/apps monitorados, NUNCA é transitório
+        if (isMonitoredPackage(pkgName)) {
+            return false
+        }
+
+        // 2. Se for a tela de configurações do próprio FocusGuard, não é transitório
+        if (pkgName == packageName) {
+            return false
+        }
+
+        // 3. Se for o Launcher da tela inicial (One UI Home, Pixel Launcher, etc.), é saída real para o Home
+        if (isHomeLauncherPackage(pkgName)) {
+            return false
+        }
+
+        // 4. Verificações em memória (zero IPC): IMEs conhecidos, classes transitórias e pacotes de sistema
+        if (isSystemInputMethodPackage(pkgName) ||
             policyEngine.isTransientSystemPackage(pkgName) ||
             policyEngine.isTransientWindowClassName(clsName)
         ) {
             return true
         }
 
-        // 2. Se for o Launcher da tela inicial (One UI Home, Pixel Launcher, etc.), é saída real para o Home
-        if (isHomeLauncherPackage(pkgName)) {
-            return false
-        }
-
-        // 3. Se for uma das redes sociais monitoradas pelo FocusGuard, é evento legítimo de app alvo
-        if (isMonitoredPackage(pkgName)) {
-            return false
-        }
-
-        // 4. Se for a tela de configurações do próprio FocusGuard, não é transitório
-        if (pkgName == packageName) {
-            return false
-        }
-
         // 5. Se durante uma sessão ativa o pacote NÃO for um aplicativo inicializável pelo usuário
         // (ex: serviços internos de teclado, previsão, painéis flutuantes da OEM sem ícone no launcher),
         // trata-se de janela transitória sobre o app em primeiro plano.
         if (policyEngine.shouldListenToAllPackages() && !isLaunchableUserApp(pkgName)) {
+            return true
+        }
+
+        // 6. Fallback final: inspeciona a hierarquia de janelas do sistema (IPC) apenas quando estritamente necessário
+        if (isTransientWindowEvent(event)) {
             return true
         }
 

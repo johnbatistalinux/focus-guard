@@ -3,6 +3,7 @@ package com.focusguard.app.data
 import com.focusguard.app.domain.AppUsageState
 import com.focusguard.app.domain.FocusConfig
 import com.focusguard.app.domain.FocusGroup
+import com.focusguard.app.domain.FocusLimits
 import com.focusguard.app.domain.FocusPolicyStore
 import com.focusguard.app.domain.FocusRewardState
 import com.focusguard.app.domain.TargetApp
@@ -29,15 +30,16 @@ class FocusPreferencesStore(
         cachedConfig?.let { return it }
 
         val enabledIds = backend.getStringSet(KEY_ENABLED_APP_IDS, DEFAULT_ENABLED_APPS)
-        val pauseSec = backend.getInt(KEY_MINDFUL_PAUSE_SEC, DEFAULT_PAUSE_SEC).coerceIn(3, 120)
-        val sessionMin = backend.getInt(KEY_SESSION_DURATION_MIN, DEFAULT_SESSION_MIN).coerceIn(1, 60)
-        val cooldownMin = backend.getInt(KEY_COOLDOWN_MIN, DEFAULT_COOLDOWN_MIN).coerceIn(1, 180)
-        val dailyQuotaMin = backend.getInt(KEY_DAILY_QUOTA_MIN, DEFAULT_DAILY_QUOTA_MIN).coerceIn(5, 240)
+        val pauseSec = backend.getInt(KEY_MINDFUL_PAUSE_SEC, DEFAULT_PAUSE_SEC).coerceIn(FocusLimits.PAUSE_SECONDS)
+        val sessionMin = backend.getInt(KEY_SESSION_DURATION_MIN, DEFAULT_SESSION_MIN).coerceIn(FocusLimits.SESSION_MINUTES)
+        val cooldownMin = backend.getInt(KEY_COOLDOWN_MIN, DEFAULT_COOLDOWN_MIN).coerceIn(FocusLimits.COOLDOWN_MINUTES)
+        val dailyQuotaMin = backend.getInt(KEY_DAILY_QUOTA_MIN, DEFAULT_DAILY_QUOTA_MIN).coerceIn(FocusLimits.DAILY_QUOTA_MINUTES)
         val progressivePause = backend.getBoolean(KEY_PROGRESSIVE_PAUSE_ENABLED, true)
-        val anchorHabit = backend.getString(
+        val rawAnchorHabit = backend.getString(
             KEY_SELECTED_ANCHOR_HABIT,
             FocusConfig.DEFAULT_ANCHOR_HABIT
-        ).ifBlank { FocusConfig.DEFAULT_ANCHOR_HABIT }
+        )
+        val anchorHabit = FocusLimits.sanitizeAnchorHabit(rawAnchorHabit)
 
         val sharedQuotaDefault = backend.getBoolean(KEY_SHARED_QUOTA_DEFAULT, true)
         val rawGroups = backend.getString(KEY_FOCUS_GROUPS_V1, "")
@@ -324,10 +326,10 @@ class FocusPreferencesStore(
                 val emoji = parts[2].trim().ifEmpty { "📱" }
                 val enabled = parts[3].toBooleanStrictOrNull() ?: true
                 val appIds = if (parts[4].isBlank()) emptySet() else parts[4].split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                val pauseSec = parts[5].toIntOrNull()?.coerceIn(3, 120) ?: DEFAULT_PAUSE_SEC
-                val sessionMin = parts[6].toIntOrNull()?.coerceIn(1, 60) ?: DEFAULT_SESSION_MIN
-                val cooldownMin = parts[7].toIntOrNull()?.coerceIn(1, 180) ?: DEFAULT_COOLDOWN_MIN
-                val dailyQuotaMin = parts[8].toIntOrNull()?.coerceIn(5, 240) ?: DEFAULT_DAILY_QUOTA_MIN
+                val pauseSec = parts[5].toIntOrNull()?.coerceIn(FocusLimits.PAUSE_SECONDS) ?: DEFAULT_PAUSE_SEC
+                val sessionMin = parts[6].toIntOrNull()?.coerceIn(FocusLimits.SESSION_MINUTES) ?: DEFAULT_SESSION_MIN
+                val cooldownMin = parts[7].toIntOrNull()?.coerceIn(FocusLimits.COOLDOWN_MINUTES) ?: DEFAULT_COOLDOWN_MIN
+                val dailyQuotaMin = parts[8].toIntOrNull()?.coerceIn(FocusLimits.DAILY_QUOTA_MINUTES) ?: DEFAULT_DAILY_QUOTA_MIN
                 val progressive = parts[9].toBooleanStrictOrNull() ?: true
                 val shared = parts[10].toBooleanStrictOrNull() ?: true
 

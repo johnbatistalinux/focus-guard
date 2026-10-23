@@ -98,6 +98,7 @@ The project enforces strict separation within a single root package and 4 cohesi
   - `domain/` *(100% pure Kotlin, JVM-testable without an emulator)*
     - `SocialAppCatalog.kt` — Immutable catalog of supported social media apps (`TargetApp`) and lookup maps.
     - `FocusModels.kt` — Core models (`FocusConfig`, `AppUsageState`, `FocusRewardState`, `FocusRewardSummary`, `BlockReason`, `InterventionAction`).
+    - `FocusLimits.kt` — Domain limits, ranges, preset matching, session-quota coercion, and quota danger levels.
     - `FocusPolicyEngine.kt` — Pure deterministic state machine (Progressive Pause, 1 Hz Breathing Guide, 1-min Micro-Session, Multi-App Paused Session Map, Voluntary Early-Exit Bonus, and Bitmask Consistency).
     - `TimeProvider.kt` — Monotonic clock and local calendar abstraction (`TimeProvider`) plus the `FocusPolicyStore` persistence contract.
   - `data/`
@@ -108,10 +109,15 @@ The project enforces strict separation within a single root package and 4 cohesi
     - `OverlayController.kt` — Programmatic native `View` manager over `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`) with cached drawables, dynamic `FLAG_KEEP_SCREEN_ON`, haptic celebration, micro-session button, and interactive floating pill (tap to swap corner, long-press to finish early with bonus).
     - `MainThreadTicker.kt` — Zero-coroutine 1 Hz countdown wrapper around `Handler(Looper.getMainLooper())`.
   - `ui/`
-    - `MainActivity.kt` — Pure `android.app.Activity` configuration screen featuring the Bento dashboard, group cards, and anti-bypass lock enforcement.
+    - `MainActivity.kt` — Lean `android.app.Activity` configuration screen (~200 lines) coordinating summary, groups, and sheets.
+    - `FocusTheme.kt` — Design tokens (dark flat theme, emerald `#34D399` accent, tonal elevation, cached drawables, insets).
+    - `BottomSheet.kt` — Native bottom sheet dialog with backdrop scrim, drag handle, and sticky action footer.
+    - `SummaryCardView.kt` — Flat daily summary card (mastery %, reclaimed minutes, 7-day consistency strip, focus level badge).
+    - `GroupCardView.kt` — Expandable group card with live quota gauge, rule summary, and app rows.
+    - `GroupConfigSheet.kt` — Native bottom sheet for editing group parameters via live SeekBars and preset chips.
+    - `AppPickerSheet.kt` — Native bottom sheet with live search for adding/moving apps across groups.
+    - `AnchorHabitSheet.kt` — Native bottom sheet with radio choices and custom input for positive anchor habits.
     - `InstalledAppScanner.kt` — On-demand scanner querying `PackageManager` for launchable user apps without background overhead.
-    - `AppPickerDialog.kt` — Programmatic dark-themed modal dialog with real-time search for assigning installed apps to focus groups.
-    - `GroupConfigDialog.kt` — Programmatic modal dialog for editing category parameters (emoji, presets, shared quotas, session timers, cooldown).
 
 ---
 

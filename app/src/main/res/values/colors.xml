@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_canvas">#0B0F14</color>
+    <color name="bg_surface">#131A24</color>
+    <color name="bg_elevated">#1C2634</color>
+    <color name="accent_emerald">#34D399</color>
+    <color name="text_primary">#F1F5F9</color>
+    <color name="text_secondary">#A0AEC0</color>
+    <color name="text_muted">#8190A5</color>
+    <color name="warn_amber">#F59E0B</color>
+    <color name="danger_red">#F87171</color>
+</resources>

@@ -86,4 +86,10 @@ Android smartphone user with 4 GB of RAM who wants to break the automatic *deep 
    - **Category-Based Grouping (`FocusGroup`):** Users organize apps into focused categories (e.g., *Redes Sociais*, *Jogos*, *Vídeos & Streaming*), each with independent timers (mindful pause, session duration, cooldown, daily quota).
    - **Shared Quota Pool:** Apps in the same group share a unified daily quota. Spending time in any app in the group deducts from the group balance. Exhausting the group quota blocks all apps in that category while leaving others unaffected.
    - **Shared Group Cooldown:** Exiting a session in one app places the entire group in cooldown, preventing impulse app-hopping (e.g. from Instagram directly into TikTok).
+9. **Flat & Accessible Dark UI/UX Overhaul (v1.5):**
+   - **Dark-Only & Pure Flat Design:** Canvas `#0B0F14`, Surface `#131A24`, Elevated `#1C2634`. Eliminates decorative borders and multi-color clutter in favor of a single emerald accent (`#34D399`), tonal elevation, and semantic warnings.
+   - **Native Bottom Sheets:** Group configurations, app picker, and anchor habit settings open in lightweight native bottom sheets with sticky action footers.
+   - **Accessibility & Ergonomics (WCAG AA):** Minimum 48dp touch targets, font scaling resilience (up to 130%), edge-to-edge window inset padding (Android 15 / API 35), and standardized Portuguese copy in `strings.xml`.
+   - **Unified Domain Limits (`FocusLimits`):** Parameter bounds, session-to-quota coercion, quota level thresholds, and preset matching reside strictly in the pure Kotlin domain layer.
+
 
