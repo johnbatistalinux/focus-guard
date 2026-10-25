@@ -2,6 +2,7 @@ package com.focusguard.app.service
 
 import android.animation.ValueAnimator
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.KeyEvent
@@ -9,6 +10,7 @@ import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.focusguard.app.R
@@ -47,6 +49,10 @@ class BarrierView(
     private val quotaFill: View
     private val quotaInfo: TextView
     private val reclaimedHint: TextView
+    private val blockGroup: LinearLayout
+    private val blockValue: TextView
+    private val blockLabel: TextView
+    private val blockMeta: TextView
     private val exitButton: Button
     private val proceedButton: Button
     private val quickButton: Button
@@ -173,6 +179,85 @@ class BarrierView(
             setPadding(0, 0, 0, context.dp(Space.M))
         }
 
+        blockGroup = LinearLayout(context).apply {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            visibility = GONE
+            layoutParams = matchWrap()
+        }
+
+        val blockIconSize = context.dp(56)
+        val blockIconCircle = FrameLayout(context).apply {
+            layoutParams = LinearLayout.LayoutParams(blockIconSize, blockIconSize).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = context.dp(Space.XL)
+            }
+            background = Theme.box(
+                Palette.DANGER_SUBTLE,
+                Radius.PILL,
+                context.resources.displayMetrics.density
+            )
+        }
+        blockIconCircle.addView(
+            ImageView(context).apply {
+                setImageResource(R.drawable.ic_lock)
+                imageTintList = ColorStateList.valueOf(Palette.DANGER)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+                layoutParams = FrameLayout.LayoutParams(
+                    context.dp(24),
+                    context.dp(24),
+                    Gravity.CENTER
+                )
+            }
+        )
+
+        blockValue = Theme.text(
+            context,
+            "",
+            TypeScale.TIMER_SP,
+            Palette.TEXT_PRIMARY,
+            Theme.LIGHT,
+            gravity = Gravity.CENTER,
+            maxLines = 1
+        ).apply {
+            fontFeatureSettings = "tnum"
+            setPadding(0, 0, 0, context.dp(Space.S))
+        }
+
+        blockLabel = Theme.text(
+            context,
+            "",
+            TypeScale.OVERLINE_SP,
+            Palette.TEXT_MUTED,
+            Theme.MEDIUM,
+            TypeScale.OVERLINE_TRACKING,
+            Gravity.CENTER,
+            1
+        )
+
+        blockMeta = Theme.text(
+            context,
+            "",
+            TypeScale.BODY_SP,
+            Palette.TEXT_SECONDARY,
+            gravity = Gravity.CENTER,
+            maxLines = 2
+        ).apply {
+            setLineSpacing(context.dp(3).toFloat(), 1f)
+            setPadding(
+                context.dp(Space.XXL),
+                0,
+                context.dp(Space.XXL),
+                context.dp(Space.XXXL)
+            )
+        }
+
+        blockGroup.addView(blockIconCircle)
+        blockGroup.addView(blockValue)
+        blockGroup.addView(blockLabel)
+        blockGroup.addView(blockMeta)
+
         exitButton = button(context, "", ButtonStyle.PRIMARY) {
             onExitToHome()
         }.apply {
@@ -197,6 +282,7 @@ class BarrierView(
         addView(cue)
         addView(quotaContainer)
         addView(reclaimedHint)
+        addView(blockGroup)
         addView(exitButton)
         addView(proceedButton)
         addView(quickButton)
@@ -212,7 +298,9 @@ class BarrierView(
 
     fun showMindfulPause(action: InterventionAction.ShowMindfulPause) {
         isMindfulPauseActive = true
+        blockGroup.visibility = GONE
 
+        title.visibility = VISIBLE
         overline.visibility = VISIBLE
         overline.text = if (action.groupName.isNotBlank()) {
             context.getString(
@@ -306,31 +394,37 @@ class BarrierView(
         overline.text = context.getString(R.string.overlay_block_overline, action.displayName)
         overline.setTextColor(Palette.DANGER)
 
-        title.text = if (isDailyExhausted) {
-            context.getString(R.string.overlay_block_quota_title)
-        } else {
-            context.getString(
-                R.string.overlay_block_cooldown_title,
-                unlockClockTime(action.remainingBlockSeconds)
-            )
-        }
-
+        title.visibility = GONE
         ringContainer.visibility = GONE
-
-        cue.visibility = VISIBLE
-        cue.text = when {
-            isDailyExhausted && action.groupName.isNotBlank() ->
-                context.getString(R.string.overlay_block_quota_body_group, action.groupName)
-            isDailyExhausted -> context.getString(R.string.overlay_block_quota_body)
-            action.groupName.isNotBlank() ->
-                context.getString(R.string.overlay_block_cooldown_body_group, action.groupName)
-            else -> context.getString(R.string.overlay_block_cooldown_body)
-        }
-
+        cue.visibility = GONE
         quotaContainer.visibility = GONE
         reclaimedHint.visibility = GONE
         proceedButton.visibility = GONE
         quickButton.visibility = GONE
+
+        blockGroup.visibility = VISIBLE
+        if (isDailyExhausted) {
+            blockValue.text = context.getString(R.string.overlay_block_quota_value)
+            blockLabel.text = context.getString(R.string.overlay_block_quota_label)
+            blockMeta.text = if (action.groupName.isNotBlank()) {
+                context.getString(R.string.overlay_block_quota_meta, action.groupName)
+            } else {
+                context.getString(R.string.overlay_block_quota_meta_simple)
+            }
+        } else {
+            blockValue.text = formatClock(action.remainingBlockSeconds)
+            blockLabel.text = context.getString(R.string.overlay_block_cooldown_label)
+            val unlockAt = unlockClockTime(action.remainingBlockSeconds)
+            blockMeta.text = if (action.groupName.isNotBlank()) {
+                context.getString(
+                    R.string.overlay_block_cooldown_meta,
+                    action.groupName,
+                    unlockAt
+                )
+            } else {
+                context.getString(R.string.overlay_block_cooldown_meta_simple, unlockAt)
+            }
+        }
 
         exitButton.text = context.getString(R.string.overlay_block_return_home)
         exitButton.isEnabled = true

@@ -151,12 +151,13 @@
 
     <!-- Overlay: hard block -->
     <string name="overlay_block_overline">BLOQUEIO ATIVO · %1$s</string>
-    <string name="overlay_block_cooldown_title">Pausa até %1$s</string>
-    <string name="overlay_block_quota_title">Limite de hoje atingido</string>
-    <string name="overlay_block_cooldown_body">A espera pós-sessão protege você do impulso de reabrir o app.</string>
-    <string name="overlay_block_cooldown_body_group">A espera do grupo %1$s protege você do impulso de pular de um app para outro.</string>
-    <string name="overlay_block_quota_body">Sua cota diária foi usada por completo. Ela volta a ficar disponível amanhã.</string>
-    <string name="overlay_block_quota_body_group">A cota do grupo %1$s foi usada por completo. Ela volta amanhã.</string>
+    <string name="overlay_block_cooldown_label">ATÉ LIBERAR</string>
+    <string name="overlay_block_cooldown_meta">Grupo %1$s · libera às %2$s</string>
+    <string name="overlay_block_cooldown_meta_simple">Libera às %1$s</string>
+    <string name="overlay_block_quota_value">Amanhã</string>
+    <string name="overlay_block_quota_label">COTA DIÁRIA ESGOTADA</string>
+    <string name="overlay_block_quota_meta">Grupo %1$s · volta à meia-noite</string>
+    <string name="overlay_block_quota_meta_simple">Volta à meia-noite</string>
     <string name="overlay_block_return_home">Voltar ao início</string>
 
     <!-- Overlay: floating pill -->
