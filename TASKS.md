@@ -91,3 +91,11 @@
 - [x] Task 13.8: [Overlay] Split the overlay into `BarrierView` + `FloatingPillView`; rewrite `OverlayController` for window lifecycle, keep-screen-on, reduced motion, and settings barrier preview
 - [x] Task 13.9: [Data] Add onboarding flag, `resetTodayStats()`, `resetAllStats()`, and group icon migration to `FocusPreferencesStore`
 - [x] Task 13.10: [Gate] Bump version to 2.0.0 (versionCode 12), update docs, run the JVM suite, and verify the release APK stays far below the 1.5 MB budget
+
+## Milestone 14: v2.0.1 — Keyboard-Proof Session Timer & Strict Block Polish
+- [x] Task 14.1: [Overlay] Redesign the strict hard block around a live `mm:ss` countdown (or `Amanhã` when the quota is exhausted), a single muted group/reason line, and one exit action
+- [x] Task 14.2: [Domain] Add `WindowExitArbiter` (pure, JVM-testable) and `FocusPolicyEngine.hasForegroundSession()` to separate a real app switch from IME/OEM auxiliary windows
+- [x] Task 14.3: [Service] Confirm candidate exits against interactive `TYPE_APPLICATION` windows (300 ms + one 400 ms re-check), keep the launcher on the fast path, and stop overwriting `currentForegroundPackage` with transient packages
+- [x] Task 14.4: [Overlay] Self-heal the floating pill when `WindowManager` detaches it and make the pill window immune to IME insets (`SOFT_INPUT_ADJUST_NOTHING`, zero insets fitting)
+- [x] Task 14.5: [Tests & Docs] Cover the arbiter with 9 JVM tests plus the `hasForegroundSession` lifecycle test; sync `ARCHITECTURE.md`, `AGENTS.md`, and `PRODUCT.md`
+- [x] Task 14.6: [Gate] Bump version to 2.0.1 (versionCode 13), run the JVM suite, assemble the release build, and publish the GitHub release

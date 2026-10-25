@@ -58,9 +58,10 @@ Android smartphone user with 4 GB of RAM who wants to break the automatic *deep 
    - Starts the **10-minute Post-Session Cooldown** for that app.
 
 ### Journey 4: Strict Block on Cooldown or Exhausted Daily Quota
-1. If the user attempts to reopen Instagram during the 10-minute Cooldown (or after exhausting the 30-minute daily quota), the overlay presents the **Strict Block** screen:
-   - Displays the remaining Cooldown timer (or informs that today's quota is exhausted until midnight).
-   - Only available button: **"Return to Home Screen"**.
+1. If the user attempts to reopen Instagram during the 10-minute Cooldown (or after exhausting the 30-minute daily quota), the overlay presents the **Strict Block** screen in a strict, minimalist layout:
+   - A live `mm:ss` countdown for the Cooldown, or **"Amanhã"** when the daily quota is exhausted.
+   - One short muted line with the group and reason (e.g. *"Grupo Redes sociais · libera às 14:32"*).
+   - Only available button: **"Voltar ao início"**.
 
 ---
 
