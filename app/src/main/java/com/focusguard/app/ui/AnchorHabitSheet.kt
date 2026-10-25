@@ -1,25 +1,32 @@
 package com.focusguard.app.ui
 
 import android.content.Context
-import android.graphics.Typeface
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.text.InputFilter
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
-import android.widget.TextView
 import com.focusguard.app.R
 import com.focusguard.app.domain.FocusConfig
 import com.focusguard.app.domain.FocusLimits
-import com.focusguard.app.ui.FocusTheme.performLightHaptic
+import com.focusguard.app.ui.design.ButtonStyle
+import com.focusguard.app.ui.design.Palette
+import com.focusguard.app.ui.design.Radius
+import com.focusguard.app.ui.design.Space
+import com.focusguard.app.ui.design.Theme
+import com.focusguard.app.ui.design.TypeScale
+import com.focusguard.app.ui.design.button
+import com.focusguard.app.ui.design.dp
+import com.focusguard.app.ui.design.inputField
+import com.focusguard.app.ui.design.matchWrap
+import com.focusguard.app.ui.design.hapticLight
 
 /**
- * Bottom sheet allowing selection of preconfigured anchor habits
- * or defining a sanitized custom habit (max 40 chars).
+ * Anchor habit picker: curated presets plus a sanitized custom habit
+ * (max 40 characters), rendered as radio rows with a sticky save action.
  */
 class AnchorHabitSheet(
     context: Context,
@@ -33,162 +40,127 @@ class AnchorHabitSheet(
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val density = context.resources.displayMetrics.density
-        fun dp(v: Int): Int = (v * density + 0.5f).toInt()
-
-        setSheetTitle("Hábito Âncora do Foco")
-        setSheetSubtitle("Meta exibida no botão verde de desistência consciente.")
+        setSheetTitle(context.getString(R.string.anchor_title))
+        setSheetSubtitle(context.getString(R.string.anchor_subtitle))
 
         val isPreset = FocusConfig.PRESET_ANCHOR_HABITS.contains(currentHabit)
         val isCustomSelected = !isPreset && currentHabit.isNotBlank()
 
-        val listLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
+        val listLayout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 
-        // 1. Preset Options
         for (preset in FocusConfig.PRESET_ANCHOR_HABITS) {
-            val row = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                minimumHeight = dp(48)
-                background = FocusTheme.flatRipple(FocusTheme.COLOR_SURFACE, cornerDp = 8, density = density)
-                val padH = dp(12)
-                setPadding(padH, dp(6), padH, dp(6))
-            }
-
-            val radio = RadioButton(context).apply {
-                isChecked = (preset == currentHabit)
-                isClickable = false
-            }
+            val radio = radioButton(preset == currentHabit)
             radioButtons.add(radio)
-
-            val text = TextView(context).apply {
-                this.text = preset
-                setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                typeface = Typeface.DEFAULT_BOLD
-                setPadding(dp(10), 0, 0, 0)
-            }
-
-            row.addView(radio)
-            row.addView(text)
-            row.setOnClickListener { view ->
+            listLayout.addView(selectableRow(radio, preset, preset == currentHabit) { view ->
                 selectedHabit = preset
                 customEditText.isEnabled = false
                 uncheckAllExcept(radio)
-                view.performLightHaptic()
-            }
-            listLayout.addView(row)
+                view.hapticLight()
+            })
         }
 
-        // 2. Custom Option
-        val customRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(48)
-            background = FocusTheme.flatRipple(FocusTheme.COLOR_SURFACE, cornerDp = 8, density = density)
-            val padH = dp(12)
-            setPadding(padH, dp(6), padH, dp(6))
-        }
-
-        val customRadio = RadioButton(context).apply {
-            isChecked = isCustomSelected
-            isClickable = false
-        }
+        val customRadio = radioButton(isCustomSelected)
         radioButtons.add(customRadio)
+        listLayout.addView(
+            selectableRow(
+                customRadio,
+                context.getString(R.string.anchor_custom_label),
+                isCustomSelected
+            ) { view ->
+                customEditText.isEnabled = true
+                customEditText.requestFocus()
+                uncheckAllExcept(customRadio)
+                view.hapticLight()
+            }
+        )
 
-        val customLabel = TextView(context).apply {
-            text = "Personalizado (máx. 40 caracteres):"
-            setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(10), 0, 0, 0)
-        }
-
-        customRow.addView(customRadio)
-        customRow.addView(customLabel)
-        customRow.setOnClickListener { view ->
-            selectedHabit = customEditText.text.toString()
-            customEditText.isEnabled = true
-            customEditText.requestFocus()
-            uncheckAllExcept(customRadio)
-            view.performLightHaptic()
-        }
-        listLayout.addView(customRow)
-
-        customEditText = EditText(context).apply {
-            hint = "Ex: Meditar 10 minutos 🧘"
-            setHintTextColor(FocusTheme.COLOR_TEXT_MUTED)
-            setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        customEditText = inputField(context, context.getString(R.string.anchor_custom_hint)).apply {
             filters = arrayOf(InputFilter.LengthFilter(FocusLimits.MAX_ANCHOR_HABIT_LENGTH))
-            background = FocusTheme.flatBox(FocusTheme.COLOR_ELEVATED, cornerDp = 8, density = density)
-            val pad = dp(12)
-            setPadding(pad, pad, pad, pad)
+            setText(if (isCustomSelected) currentHabit else "")
             isEnabled = isCustomSelected
-            if (isCustomSelected) {
-                setText(currentHabit)
+            layoutParams = matchWrap().apply {
+                topMargin = context.dp(Space.S)
+                bottomMargin = context.dp(Space.M)
             }
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(8)
-            }
-            layoutParams = lp
         }
         listLayout.addView(customEditText)
 
+        listLayout.addView(
+            Theme.text(
+                context,
+                context.getString(R.string.anchor_current) + ": " + currentHabit,
+                TypeScale.CAPTION_SP,
+                Palette.TEXT_MUTED
+            )
+        )
+
         setBodyView(listLayout)
-
-        // 3. Footer Action Buttons
-        val footerLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        val saveBtn = Button(context).apply {
-            text = context.getString(R.string.action_save)
-            isAllCaps = false
-            setTextColor(FocusTheme.COLOR_ACCENT_TEXT_DARK)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            typeface = Typeface.DEFAULT_BOLD
-            minimumHeight = dp(48)
-            background = FocusTheme.flatRipple(FocusTheme.COLOR_ACCENT, cornerDp = 12, density = density)
-            setOnClickListener {
-                val finalHabit = if (customRadio.isChecked) {
+        setFooterView(
+            button(context, context.getString(R.string.action_save), ButtonStyle.PRIMARY) {
+                val resolved = if (customEditText.isEnabled) {
                     FocusLimits.sanitizeAnchorHabit(customEditText.text.toString())
                 } else {
                     FocusLimits.sanitizeAnchorHabit(selectedHabit)
                 }
-                onHabitConfirmed(finalHabit)
+                onHabitConfirmed(resolved)
                 dismiss()
             }
-        }
-
-        val cancelBtn = Button(context).apply {
-            text = context.getString(R.string.action_cancel)
-            isAllCaps = false
-            setTextColor(FocusTheme.COLOR_TEXT_MUTED)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            background = FocusTheme.flatRipple(android.graphics.Color.TRANSPARENT, cornerDp = 12, density = density)
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(4) }
-            layoutParams = lp
-            setOnClickListener { dismiss() }
-        }
-
-        footerLayout.addView(saveBtn)
-        footerLayout.addView(cancelBtn)
-        setFooterView(footerLayout)
+        )
     }
 
-    private fun uncheckAllExcept(active: RadioButton) {
-        for (rb in radioButtons) {
-            rb.isChecked = (rb === active)
+    private fun radioButton(checked: Boolean): RadioButton = RadioButton(context).apply {
+        isChecked = checked
+        isClickable = false
+        buttonTintList = ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+            intArrayOf(Palette.ACCENT, Palette.TEXT_MUTED)
+        )
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { marginEnd = context.dp(Space.S) }
+    }
+
+    private fun selectableRow(
+        radio: RadioButton,
+        label: CharSequence,
+        checked: Boolean,
+        onClick: (View) -> Unit
+    ): LinearLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = context.dp(52)
+        val padH = context.dp(Space.M)
+        setPadding(padH, context.dp(Space.XS), padH, context.dp(Space.XS))
+        background = Theme.ripple(
+            if (checked) Palette.ACCENT_SUBTLE else Palette.ELEVATED,
+            Radius.SMALL
+        )
+        layoutParams = matchWrap().apply { bottomMargin = context.dp(Space.XS) }
+        addView(radio)
+        addView(
+            Theme.text(
+                context,
+                label,
+                TypeScale.BODY_SP,
+                Palette.TEXT_PRIMARY,
+                Theme.MEDIUM
+            ).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+        )
+        setOnClickListener(onClick)
+    }
+
+    private fun uncheckAllExcept(selected: RadioButton) {
+        val selectedIndex = radioButtons.indexOf(selected)
+        for (index in radioButtons.indices) {
+            radioButtons[index].isChecked = index == selectedIndex
+            val row = radioButtons[index].parent as? LinearLayout ?: continue
+            row.background = Theme.ripple(
+                if (index == selectedIndex) Palette.ACCENT_SUBTLE else Palette.ELEVATED,
+                Radius.SMALL
+            )
         }
     }
 }

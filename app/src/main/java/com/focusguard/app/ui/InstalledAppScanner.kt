@@ -2,7 +2,6 @@ package com.focusguard.app.ui
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import com.focusguard.app.domain.SocialAppCatalog
 import com.focusguard.app.domain.TargetApp
 

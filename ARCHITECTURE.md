@@ -41,8 +41,9 @@ flowchart TD
     end
 
     subgraph NATIVE_UI ["UI Layer (Pure Android Native Views)"]
-        OVERLAY["🛑 OverlayController<br/>• Mindful Pause View (10s+)<br/>• Strict Block View (Cooldown / Quota)<br/>• Floating Pill (Mini-Timer)"]:::ui
-        CONFIG_ACT["📱 MainActivity (Configuration)<br/>• Monitored app switches<br/>• Duration selectors & anti-bypass lock status"]:::ui
+        OVERLAY["🛑 OverlayController<br/>• BarrierView (mindful pause + hard block)<br/>• FloatingPillView (session timer)"]:::ui
+        SHELL["📱 MainActivity (3-tab shell)<br/>• Hoje / Grupos / Ajustes<br/>• Sheets & anti-bypass lock"]:::ui
+        ONBOARD["🚀 OnboardingActivity<br/>• 3-step first-run wizard"]:::ui
     end
 
     subgraph PERSISTENCE ["Persistence Layer"]
@@ -58,8 +59,9 @@ flowchart TD
     SVC -->|"7. starts/stops 1 Hz ticker"| TICKER
     TICKER -->|"8. updates countdown seconds"| OVERLAY
     TICKER -->|"9. notifies session expiration"| SVC
-    CONFIG_ACT -->|"reads fixed catalog"| CATALOG
-    CONFIG_ACT -->|"saves config (when unlocked)"| PREFS
+    SHELL -->|"reads fixed catalog"| CATALOG
+    SHELL -->|"saves config (when unlocked)"| PREFS
+    ONBOARD -->|"creates first group"| PREFS
     PREFS -.->|"notifies package filter update"| SVC
 ```
 
@@ -97,26 +99,38 @@ The project enforces strict separation within a single root package and 4 cohesi
 - `com.focusguard.app/`
   - `domain/` *(100% pure Kotlin, JVM-testable without an emulator)*
     - `SocialAppCatalog.kt` — Immutable catalog of supported social media apps (`TargetApp`) and lookup maps.
-    - `FocusModels.kt` — Core models (`FocusConfig`, `AppUsageState`, `FocusRewardState`, `FocusRewardSummary`, `BlockReason`, `InterventionAction`).
+    - `FocusModels.kt` — Core models (`GroupIcon`, `FocusGroup`, `FocusConfig`, `AppUsageState`, `FocusRewardState`, `FocusRewardSummary`, `ActiveSessionSnapshot`, `BlockReason`, `InterventionAction`).
     - `FocusLimits.kt` — Domain limits, ranges, preset matching, session-quota coercion, and quota danger levels.
     - `FocusPolicyEngine.kt` — Pure deterministic state machine (Progressive Pause, 1 Hz Breathing Guide, 1-min Micro-Session, Multi-App Paused Session Map, Voluntary Early-Exit Bonus, and Bitmask Consistency).
     - `TimeProvider.kt` — Monotonic clock and local calendar abstraction (`TimeProvider`) plus the `FocusPolicyStore` persistence contract.
   - `data/`
-    - `KeyValueBackend.kt` — Minimal storage abstraction (`KeyValueBackend`, `SharedPreferencesBackend`) and `FocusRuntime` process-wide singleton providing shared `FocusPreferencesStore` and `FocusPolicyEngine` instances across `MainActivity` and `FocusAccessibilityService`.
-    - `FocusPreferencesStore.kt` — Ultra-light `SharedPreferences` implementation with in-memory caching, atomic batch commits, lazy daily reset, and `consistencyBitmask` rollover.
+    - `KeyValueBackend.kt` — Minimal storage abstraction (`KeyValueBackend`, `SharedPreferencesBackend`) and `FocusRuntime` process-wide singleton providing shared `FocusPreferencesStore` and `FocusPolicyEngine` instances across activities and `FocusAccessibilityService`.
+    - `FocusPreferencesStore.kt` — Ultra-light `SharedPreferences` implementation with in-memory caching, atomic batch commits, lazy daily reset, `consistencyBitmask` rollover, group icon migration, onboarding flag, and stats resets.
   - `service/`
-    - `FocusAccessibilityService.kt` — Android `AccessibilityService` managing lifecycle, dynamic `packageNames` filtering, interactive window & IME detection, screen-off/unlock handling, and `GLOBAL_ACTION_HOME`.
-    - `OverlayController.kt` — Programmatic native `View` manager over `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`) with cached drawables, dynamic `FLAG_KEEP_SCREEN_ON`, haptic celebration, micro-session button, and interactive floating pill (tap to swap corner, long-press to finish early with bonus).
+    - `FocusAccessibilityService.kt` — Android `AccessibilityService` managing lifecycle, dynamic `packageNames` filtering, interactive window & IME detection, screen-off/unlock handling, `GLOBAL_ACTION_HOME`, barrier preview, and dashboard session termination.
+    - `OverlayController.kt` — Window lifecycle manager over `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`), owning only attachment, `FLAG_KEEP_SCREEN_ON`, and the floating pill flags (`FLAG_ALT_FOCUSABLE_IM`).
+    - `BarrierView.kt` — Full-screen mindful pause / hard block hierarchy with the 4s breathing ring, quota gauge, and thumb-zone actions. Bound in place on every tick.
+    - `FloatingPillView.kt` — Compact session pill with monospaced countdown, session-progress track, tap-to-swap-side, and long-press early exit.
     - `MainThreadTicker.kt` — Zero-coroutine 1 Hz countdown wrapper around `Handler(Looper.getMainLooper())`.
   - `ui/`
-    - `MainActivity.kt` — Lean `android.app.Activity` configuration screen (~200 lines) coordinating summary, groups, and sheets.
-    - `FocusTheme.kt` — Design tokens (dark flat theme, emerald `#34D399` accent, tonal elevation, cached drawables, insets).
-    - `BottomSheet.kt` — Native bottom sheet dialog with backdrop scrim, drag handle, and sticky action footer.
-    - `SummaryCardView.kt` — Flat daily summary card (mastery %, reclaimed minutes, 7-day consistency strip, focus level badge).
-    - `GroupCardView.kt` — Expandable group card with live quota gauge, rule summary, and app rows.
-    - `GroupConfigSheet.kt` — Native bottom sheet for editing group parameters via live SeekBars and preset chips.
+    - `MainActivity.kt` — Three-tab shell (Hoje, Grupos, Ajustes) with a custom bottom navigation bar, onboarding redirect, sheet orchestration, and anti-bypass lock enforcement.
+    - `OnboardingActivity.kt` — Three-step first-run wizard (activate service, choose apps, pick a rhythm).
+    - `TodayScreen.kt` — Daily briefing: reclaimed time, resisted impulses, 7-day strip, live session, and per-group limit preview.
+    - `GroupsScreen.kt` — Group management with quota gauges, cooldown chips, expandable app usage, and edit/manage entry points.
+    - `SettingsScreen.kt` — Service activation guide, barrier preview, anchor habit, data resets, and privacy/version info.
+    - `design/Theme.kt` — Warm Dusk tokens (`Palette`, `TypeScale`, `Space`, `Radius`, `Motion`), dp/insets helpers, haptics, and reduced-motion detection.
+    - `design/UiKit.kt` — Native primitives: buttons, cards, section headers, chips, monograms, switches, seekbars, inputs, empty states, and `QuotaBarView`.
+    - `presenter/DashboardPresenter.kt` — Maps stores and the engine into immutable `TodayState` / `SettingsState` / `GroupLimitState` snapshots and formatting helpers.
+    - `BottomSheet.kt` — Native bottom sheet dialog with drag handle, scrollable body, hairline divider, and sticky action footer.
+    - `ConfirmSheet.kt` — Explicit destructive confirmation sheet.
+    - `ReclaimedCardView.kt` — Daily hero card with reclaimed minutes, resisted impulses, tangible equivalence, and a 7-day consistency strip.
+    - `ServiceStatusCard.kt` — Compact (Hoje) and detailed (Ajustes/onboarding) accessibility-service card with activation steps and barrier test.
+    - `GroupCardView.kt` — Expandable group card with isolated switch, numeric quota, semantic chip, and per-app rows.
+    - `GroupConfigSheet.kt` — Group identity (name + vector icon), presets, rhythm sliders, shared-quota behavior, and destructive delete.
     - `AppPickerSheet.kt` — Native bottom sheet with live search for adding/moving apps across groups.
     - `AnchorHabitSheet.kt` — Native bottom sheet with radio choices and custom input for positive anchor habits.
+    - `AnchorHabitCardView.kt` — Settings card showing the current anchor habit.
+    - `GroupIconResources.kt` — Maps the stable `GroupIcon` keys to vector drawables.
     - `InstalledAppScanner.kt` — On-demand scanner querying `PackageManager` for launchable user apps without background overhead.
 
 ---
@@ -126,10 +140,29 @@ The project enforces strict separation within a single root package and 4 cohesi
 ```kotlin
 package com.focusguard.app.domain
 
+/** Stable persisted key + curated vector icon (legacy emoji migration on read). */
+enum class GroupIcon(val key: String, val label: String, val legacyEmoji: String) {
+    SOCIAL("social", "Redes sociais", "📱"),
+    GAMES("games", "Jogos", "🎮"),
+    VIDEO("video", "Vídeos e streaming", "🎬"),
+    SHOPPING("shopping", "Compras", "🛒"),
+    NEWS("news", "Notícias", "📰"),
+    CHAT("chat", "Mensagens", "💬"),
+    WORK("work", "Trabalho", "💼"),
+    STUDY("study", "Estudos", "📚"),
+    MUSIC("music", "Música", "🎵"),
+    BROWSER("browser", "Navegador", "🌐"),
+    CUSTOM("custom", "Outro", "🎯");
+
+    companion object {
+        fun fromStored(raw: String?): GroupIcon
+    }
+}
+
 data class FocusGroup(
     val id: String,
     val name: String,
-    val iconEmoji: String = "📱",
+    val iconKey: String = GroupIcon.SOCIAL.key,
     val enabled: Boolean = true,
     val appIds: Set<String> = emptySet(),
     val mindfulPauseSeconds: Int = 10,
@@ -142,6 +175,7 @@ data class FocusGroup(
     val sessionDurationSeconds: Long get() = sessionDurationMinutes * 60L
     val cooldownSeconds: Long get() = cooldownMinutes * 60L
     val dailyQuotaSeconds: Long get() = dailyQuotaMinutes * 60L
+    val icon: GroupIcon get() = GroupIcon.fromStored(iconKey)
 }
 
 data class TargetApp(
@@ -165,20 +199,21 @@ data class FocusConfig(
     val sharedQuotaEnabled: Boolean = true
 )
 
-sealed interface InterventionAction {
-    /** Ignored package or return to Launcher; hides any active overlay. */
-    data object DismissOverlay : InterventionAction
+/** Read-only dashboard snapshot of an active or background-paused session. */
+data class ActiveSessionSnapshot(
+    val appId: String,
+    val displayName: String,
+    val groupName: String,
+    val remainingSeconds: Long,
+    val totalSeconds: Long
+)
 
-    /** Irrelevant transient window event (e.g. soft keyboard / popup over active session); preserves state. */
+sealed interface InterventionAction {
+    data object DismissOverlay : InterventionAction
     data object NoOp : InterventionAction
 
-    /** Immediately closes the target app via GLOBAL_ACTION_HOME. */
-    data class KickToHome(
-        val appId: String,
-        val reason: BlockReason
-    ) : InterventionAction
+    data class KickToHome(val appId: String, val reason: BlockReason) : InterventionAction
 
-    /** Strict block screen when cooldown is active or daily quota is exhausted. */
     data class ShowHardBlock(
         val appId: String,
         val displayName: String,
@@ -187,7 +222,6 @@ sealed interface InterventionAction {
         val groupName: String = ""
     ) : InterventionAction
 
-    /** Mindful breathing/pause barrier before unlocking a session. */
     data class ShowMindfulPause(
         val appId: String,
         val displayName: String,
@@ -199,34 +233,17 @@ sealed interface InterventionAction {
         val rewardBannerText: String = "",
         val reclaimedMinutesOnAbort: Int = 5,
         val allowQuickMicroSession: Boolean = false,
-        val groupName: String = ""
+        val groupName: String = "",
+        val sessionDurationMinutes: Int = 15
     ) : InterventionAction
 
-    /** Active unlocked session: compact floating pill. */
     data class ShowFloatingTimer(
         val appId: String,
         val displayName: String,
         val remainingSessionSeconds: Long,
         val remainingDailyQuotaSeconds: Long,
-        val groupName: String = ""
-    ) : InterventionAction
-}
-        val remainingPauseSeconds: Int,
-        val readyToStartSession: Boolean,
-        val remainingDailyQuotaSeconds: Long,
-        val breathingCue: String = "",
-        val anchorActionLabel: String = "Fechar e voltar ao que importa",
-        val rewardBannerText: String = "",
-        val reclaimedMinutesOnAbort: Int = 5,
-        val allowQuickMicroSession: Boolean = false
-    ) : InterventionAction
-
-    /** Active unlocked session with discrete floating timer pill. */
-    data class ShowFloatingTimer(
-        val appId: String,
-        val displayName: String,
-        val remainingSessionSeconds: Long,
-        val remainingDailyQuotaSeconds: Long
+        val groupName: String = "",
+        val totalSessionSeconds: Long = 0L
     ) : InterventionAction
 }
 
@@ -249,3 +266,51 @@ enum class BlockReason {
 3. **Dynamic OS-Level Package Filtering:**
    - When idle, `serviceInfo.packageNames` is restricted solely to `enabledPackages`, keeping FocusGuard at `0.0%` CPU during normal phone usage.
    - Broad window-transition listening (`packageNames = null`) is activated strictly while a session or pause barrier is live in order to detect home/app exits immediately without background polling.
+
+---
+
+## 7. UI Design System — "Warm Dusk" (v2.0)
+
+### 7.1 Tokens (`ui/design/Theme.kt`)
+
+| Token | Value | Role |
+| :--- | :--- | :--- |
+| `Palette.CANVAS` | `#12100E` | Window background |
+| `Palette.SURFACE` | `#1C1815` | Cards and sheets |
+| `Palette.ELEVATED` | `#27211C` | Inputs, chips, secondary buttons |
+| `Palette.SUNKEN` | `#171310` | Progress tracks |
+| `Palette.HAIRLINE` | `#3A322B` | 1dp dividers |
+| `Palette.ACCENT` | `#E9B872` | Primary action, selection, focus |
+| `Palette.SAGE` | `#9CC5A1` | Success, within quota |
+| `Palette.WARN` | `#E08A4C` | Quota warning |
+| `Palette.DANGER` | `#D9635A` | Cooldown, destructive actions |
+| `TypeScale` | `11 → 40sp` | Overline, caption, label, body, title, display, timer |
+| `Space` | `4 → 48dp` | 8pt spacing grid (with 4dp micro-steps) |
+| `Radius` | `10 / 14 / 20 / pill` | Buttons, cards, sheets, chips |
+
+`Theme` also exposes `dp()`, `applyInsets()` (edge-to-edge with a single listener per host view), `isReducedMotion()` (reads `ANIMATOR_DURATION_SCALE`), the `View.hapticLight()` / `View.hapticConfirm()` extensions, and the shared `formatClock()` (`mm:ss`) used by the barrier, the floating pill and the dashboard.
+
+### 7.2 Primitives (`ui/design/UiKit.kt`)
+
+`button()` (primary / secondary / ghost / danger), `sectionHeader()`, `statusChip()`, `monogram()`, `themedSwitch()`, `themedCheckBox()`, `themedSeekBar()`, `inputField()`, `emptyState()`, and `QuotaBarView` (in-place ratio/color updates with zero re-allocation on refresh).
+
+### 7.3 Navigation & State Flow
+
+- `MainActivity` is a shell only: it owns the three screens, the custom bottom navigation, the onboarding redirect, and every configuration mutation.
+- `DashboardPresenter` converts store/engine queries into immutable `TodayState`, `SettingsState` and `GroupLimitState` snapshots plus the seven-day `dayLabels` used by the consistency strip.
+- Each screen exposes `bind(state)` and rebuilds only its own subtree; `GroupsScreen` preserves expanded group ids across refreshes, and `TodayScreen` preserves scroll position.
+- Sheets (`GroupConfigSheet`, `AppPickerSheet`, `AnchorHabitSheet`, `ConfirmSheet`) are `Dialog` subclasses with `WindowManager.LayoutParams.MATCH_PARENT` width and a sticky footer.
+
+### 7.4 Overlay Composition
+
+- `OverlayController` never builds views. It attaches/detaches `BarrierView` and `FloatingPillView`, and toggles `FLAG_KEEP_SCREEN_ON` while the pause is counting down.
+- `BarrierView` is created once per barrier session and rebound in place every second; the breathing ring animator is paused/cancelled on `dismissAll()`.
+- Preview mode (`renderPreview()`) reuses the real barrier with representative data and dismisses on any action, so the settings screen can validate the design without mutating engine state.
+- The floating pill keeps `FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCH_MODAL | FLAG_ALT_FOCUSABLE_IM` so IME windows never conflict with the session timer.
+
+### 7.5 Zero-Bloat Guardrails
+
+- No new runtime dependencies: no AndroidX, no Compose, no Material, no navigation library.
+- All icons are hand-written vector drawables (`res/drawable/ic_*.xml`, 19 files) tinted at runtime; unused resources are pruned.
+- Emoji were removed from domain copy and group identity; `GroupIcon` persists a stable key and migrates legacy emoji on read.
+- Release APK budget: `< 1.5 MB` (currently `~130 KB` with R8 + resource shrinking).

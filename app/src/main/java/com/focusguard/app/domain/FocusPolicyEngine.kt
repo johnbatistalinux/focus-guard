@@ -256,7 +256,8 @@ class FocusPolicyEngine(
                 displayName = targetApp.displayName,
                 remainingSessionSeconds = effectiveRemaining,
                 remainingDailyQuotaSeconds = remainingDailySeconds,
-                groupName = gName
+                groupName = gName,
+                totalSessionSeconds = resumed.initialSessionSeconds
             )
         }
 
@@ -437,7 +438,8 @@ class FocusPolicyEngine(
             displayName = state.app.displayName,
             remainingSessionSeconds = sessionSeconds,
             remainingDailyQuotaSeconds = remainingDailySeconds,
-            groupName = gName
+            groupName = gName,
+            totalSessionSeconds = sessionSeconds
         )
     }
 
@@ -525,6 +527,19 @@ class FocusPolicyEngine(
         currentState = EngineState.Idle
         persistSessionGuards()
         return InterventionAction.DismissOverlay
+    }
+
+    /**
+     * Ends an active or background-paused session on user request from the dashboard.
+     */
+    fun onUserEndedSessionFromDashboard(): InterventionAction {
+        if (currentState is EngineState.InActiveSession) {
+            return onUserEndedSessionEarly()
+        }
+        val paused = pausedSessionsByAppId.values.firstOrNull() ?: return InterventionAction.NoOp
+        pausedSessionsByAppId.remove(paused.app.id)
+        currentState = paused
+        return onUserEndedSessionEarly()
     }
 
     /**
@@ -620,7 +635,8 @@ class FocusPolicyEngine(
                         displayName = state.app.displayName,
                         remainingSessionSeconds = newRemainingSession,
                         remainingDailyQuotaSeconds = newRemainingDaily,
-                        groupName = gName
+                        groupName = gName,
+                        totalSessionSeconds = state.initialSessionSeconds
                     )
                 }
             }
@@ -711,11 +727,17 @@ class FocusPolicyEngine(
         val consistencyPct = ((daysWithinQuota * 100) / windowDays).coerceIn(0, 100)
 
         val dotsBuilder = StringBuilder()
+        val last7DaysWithinQuota = ArrayList<Boolean>(7)
+        val last7DaysTracked = ArrayList<Boolean>(7)
         for (bitIndex in 6 downTo 0) {
             if (dotsBuilder.isNotEmpty()) dotsBuilder.append(' ')
+            val isTracked = bitIndex < reward.trackedDaysCount
+            val isWithinQuota = isTracked && ((reward.consistencyBitmask ushr bitIndex) and 1L) == 1L
+            last7DaysTracked.add(isTracked)
+            last7DaysWithinQuota.add(isWithinQuota)
             val symbol = when {
-                bitIndex >= reward.trackedDaysCount -> '·'
-                ((reward.consistencyBitmask ushr bitIndex) and 1L) == 1L -> '●'
+                !isTracked -> '·'
+                isWithinQuota -> '●'
                 else -> '○'
             }
             dotsBuilder.append(symbol)
@@ -731,7 +753,29 @@ class FocusPolicyEngine(
             tangibleEquivalentText = formatTangibleEquivalent(totalReclaimedMin),
             focusLevelTitle = formatFocusLevelTitle(reward.totalImpulsesBeaten),
             last7DaysDots = dotsBuilder.toString(),
-            consistencySummaryText = "$daysWithinQuota dos últimos $windowDays dias dentro da meta ($consistencyPct%)"
+            consistencySummaryText = "$daysWithinQuota dos últimos $windowDays dias dentro da meta ($consistencyPct%)",
+            last7DaysWithinQuota = last7DaysWithinQuota,
+            last7DaysTracked = last7DaysTracked
+        )
+    }
+
+    /**
+     * Snapshot da sessão ativa ou pausada em segundo plano, usado pela tela Hoje.
+     */
+    fun getActiveSessionSnapshot(): ActiveSessionSnapshot? {
+        val state = (currentState as? EngineState.InActiveSession)
+            ?.takeIf { it.remainingSessionSeconds > 0L }
+            ?: pausedSessionsByAppId.values.firstOrNull { it.remainingSessionSeconds > 0L }
+            ?: return null
+
+        val config = store.getConfig()
+        val group = resolveGroupForApp(config, state.app.id)
+        return ActiveSessionSnapshot(
+            appId = state.app.id,
+            displayName = state.app.displayName,
+            groupName = groupDisplayName(group),
+            remainingSeconds = state.remainingSessionSeconds,
+            totalSeconds = state.initialSessionSeconds
         )
     }
 
@@ -917,23 +961,23 @@ class FocusPolicyEngine(
             return "Pausa concluída. Você realmente precisa entrar agora?"
         }
         return when (remainingSeconds % 10) {
-            9, 8, 7, 0 -> "🌬️ Inspire profundamente pelo nariz..."
-            6, 5 -> "⏸️ Segure o ar por um instante..."
-            else -> "🍃 Expire devagar soltando o impulso..."
+            9, 8, 7, 0 -> "Inspire profundamente pelo nariz."
+            6, 5 -> "Segure o ar por um instante."
+            else -> "Expire devagar, soltando o impulso."
         }
     }
 
     private fun formatOverlayRewardBanner(reward: FocusRewardState): String {
         val savedMinToday = reward.reclaimedSecondsToday / 60L
         if (reward.abortedToday == 0 && reward.voluntaryExitsToday == 0) {
-            return "🌱 Foco Consciente: feche agora para resgatar os primeiros minutos do dia"
+            return "Feche agora para resgatar os primeiros minutos do dia."
         }
         val masteryPct = if (reward.attemptsToday > 0) {
             ((reward.abortedToday * 100) / reward.attemptsToday).coerceIn(0, 100)
         } else {
             100
         }
-        return "🛡️ ${reward.abortedToday}/${reward.attemptsToday} impulsos vencidos hoje ($masteryPct%) • +${savedMinToday} min resgatados"
+        return "${reward.abortedToday}/${reward.attemptsToday} impulsos vencidos hoje ($masteryPct%) · +${savedMinToday} min resgatados"
     }
 
     private fun formatTangibleEquivalent(totalReclaimedMinutes: Long): String {
@@ -943,17 +987,17 @@ class FocusPolicyEngine(
         val approxPages = (totalReclaimedMinutes / 2L).coerceAtLeast(1L)
         val walks = totalReclaimedMinutes / 15L
         return if (walks >= 1L) {
-            "Equivale a ~$approxPages páginas lidas 📖 ou $walks caminhada(s) de 15 min 🚶"
+            "Equivale a ~$approxPages páginas lidas ou $walks caminhada(s) de 15 min"
         } else {
-            "Equivale a ~$approxPages páginas de um livro lidas 📖"
+            "Equivale a ~$approxPages páginas de um livro lidas"
         }
     }
 
     private fun formatFocusLevelTitle(totalImpulsesBeaten: Int): String = when {
-        totalImpulsesBeaten >= 150 -> "Mestre do Próprio Tempo 🏆"
-        totalImpulsesBeaten >= 50 -> "Mente Blindada 💎"
-        totalImpulsesBeaten >= 10 -> "Guardião da Atenção 🛡️"
-        else -> "Iniciante Consciente 🌱"
+        totalImpulsesBeaten >= 150 -> "Mestre do próprio tempo"
+        totalImpulsesBeaten >= 50 -> "Mente blindada"
+        totalImpulsesBeaten >= 10 -> "Guardião da atenção"
+        else -> "Iniciante consciente"
     }
 
     private fun markTodayQuotaExceededInReward(todayEpochDay: Long) {

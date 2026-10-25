@@ -188,6 +188,27 @@ class FocusAccessibilityService : AccessibilityService() {
         applyInterventionAction(action)
     }
 
+    /**
+     * Shows a demo barrier for the settings screen without mutating engine state.
+     */
+    fun previewBarrier(): Boolean {
+        if (overlayController.isShowingBarrier()) {
+            overlayController.dismissAll()
+        }
+        overlayController.renderPreview()
+        return overlayController.isShowingBarrier()
+    }
+
+    /**
+     * Ends the active or paused session triggered from the dashboard.
+     */
+    fun endSessionFromDashboard(): Boolean {
+        val action = policyEngine.onUserEndedSessionFromDashboard()
+        if (action is InterventionAction.NoOp) return false
+        applyInterventionAction(action)
+        return true
+    }
+
     private fun handleUserEndSessionEarly() {
         suppressCurrentMonitoredPackageOnExit()
         currentForegroundPackage = null
@@ -490,5 +511,19 @@ class FocusAccessibilityService : AccessibilityService() {
         }
 
         fun isServiceRunning(): Boolean = activeInstanceRef?.get() != null
+
+        /**
+         * Renders the barrier in preview mode from the settings screen.
+         * Returns false when the service is not connected.
+         */
+        fun showBarrierPreview(): Boolean {
+            val service = activeInstanceRef?.get() ?: return false
+            return service.previewBarrier()
+        }
+
+        fun endSessionFromDashboard(): Boolean {
+            val service = activeInstanceRef?.get() ?: return false
+            return service.endSessionFromDashboard()
+        }
     }
 }

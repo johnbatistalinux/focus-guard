@@ -3,48 +3,189 @@
     <string name="app_name">FocusGuard</string>
     <string name="accessibility_service_description">Intercepta a abertura de redes sociais selecionadas para inserir uma pausa consciente e controlar sessões de uso sem consumir memória em segundo plano.</string>
 
-    <!-- Header & Service Callouts -->
-    <string name="status_protected">Proteção ativa</string>
-    <string name="status_inactive">Inativo</string>
-    <string name="service_callout_title">Serviço de acessibilidade desativado</string>
-    <string name="service_callout_subtitle">Ative o serviço para habilitar a barreira de foco e a contagem de tempo.</string>
-    <string name="service_callout_action">Ativar Serviço de Acessibilidade</string>
-    <string name="lock_banner_title">Configurações em modo somente leitura</string>
+    <!-- Navigation -->
+    <string name="nav_today">Hoje</string>
+    <string name="nav_groups">Grupos</string>
+    <string name="nav_settings">Ajustes</string>
 
-    <!-- Summary Section -->
-    <string name="summary_title">Resumo do dia</string>
-    <string name="summary_mastery_label">Domínio hoje</string>
-    <string name="summary_reclaimed_label">Tempo resgatado</string>
-    <string name="summary_consistency_label">Consistência recente</string>
-
-    <!-- Groups Section -->
-    <string name="groups_title">Grupos de limites</string>
-    <string name="create_group_action">+ Criar novo grupo</string>
-    <string name="group_adjust_limits">Ajustar limites</string>
-    <string name="group_add_apps">+ Aplicativos</string>
-    <string name="group_empty_prompt">Nenhum aplicativo adicionado neste grupo ainda.</string>
-    <string name="group_cooldown_badge">Espera</string>
-    <string name="group_quota_exhausted_badge">Cota esgotada</string>
-    <string name="group_inactive_badge">Inativo</string>
-
-    <!-- Preferences Section -->
-    <string name="preferences_title">Preferências</string>
-    <string name="anchor_habit_label">Hábito âncora do botão verde</string>
-    <string name="anchor_habit_action">Trocar</string>
-
-    <!-- Common Dialog / Sheet Actions -->
+    <!-- Common actions -->
     <string name="action_save">Salvar alterações</string>
     <string name="action_cancel">Cancelar</string>
-    <string name="action_delete_group">Excluir categoria</string>
-    <string name="action_delete_confirm">Confirmar exclusão?</string>
-    <string name="action_confirm">Confirmar</string>
-    <string name="search_apps_hint">Buscar aplicativo ou jogo...</string>
+    <string name="action_skip">Pular por agora</string>
 
-    <!-- Overlay Strings -->
-    <string name="overlay_ready">Pronto</string>
-    <string name="overlay_until_tomorrow">Até amanhã</string>
-    <string name="overlay_breathe_ready">Pausa concluída. Você realmente precisa entrar agora?</string>
-    <string name="overlay_action_micro">Resposta rápida (1 min)</string>
-    <string name="overlay_action_waiting">Aguarde a pausa terminar...</string>
-    <string name="overlay_return_home">Voltar para o início</string>
+    <!-- Status -->
+    <string name="status_protected">Proteção ativa</string>
+    <string name="status_inactive">Serviço desativado</string>
+
+    <!-- Today -->
+    <string name="today_title">Hoje</string>
+    <string name="today_reclaimed_overline">Resumo de hoje</string>
+    <string name="today_day_label">hoje</string>
+    <string name="today_day_untracked">%1$s: sem registro</string>
+    <string name="today_day_success">%1$s: dentro da meta</string>
+    <string name="today_day_miss">%1$s: fora da meta</string>
+    <string name="today_reclaimed_label">min resgatados</string>
+    <string name="today_no_activity">Cada impulso resistido aparece aqui. Comece fechando uma barreira.</string>
+    <string name="today_limits_title">Seus limites</string>
+    <string name="today_view_groups">Ver grupos</string>
+    <string name="today_session_active">Sessão em andamento</string>
+    <string name="today_session_remaining">%1$s restantes em %2$s</string>
+    <string name="today_session_end">Encerrar sessão</string>
+    <string name="today_no_groups_title">Nenhum grupo configurado</string>
+    <string name="today_no_groups_body">Crie um grupo para definir quanto tempo cada app pode ocupar no seu dia.</string>
+    <string name="today_no_groups_action">Criar primeiro grupo</string>
+
+    <!-- Service status -->
+    <string name="service_inactive_title">Ative a proteção</string>
+    <string name="service_inactive_body">O serviço de acessibilidade é o que permite ao FocusGuard inserir a pausa antes do feed abrir.</string>
+    <string name="service_activate">Ativar serviço de acessibilidade</string>
+    <string name="service_active_title">Proteção ativa</string>
+    <string name="service_active_body">O FocusGuard está observando apenas os apps dos seus grupos.</string>
+    <string name="service_steps_title">Como ativar</string>
+    <string name="service_step_1">Abra as configurações de acessibilidade do Android.</string>
+    <string name="service_step_2">Encontre FocusGuard na lista de apps instalados.</string>
+    <string name="service_step_3">Ative o interruptor e volte para cá.</string>
+    <string name="service_test_barrier">Testar barreira</string>
+    <string name="service_test_unavailable">Ative o serviço para testar a barreira.</string>
+
+    <!-- Lock -->
+    <string name="lock_banner_title">Configurações em modo somente leitura</string>
+
+    <!-- Groups -->
+    <string name="groups_title">Grupos</string>
+    <string name="groups_subtitle">Apps no mesmo grupo compartilham cota e espera.</string>
+    <string name="groups_new">Novo grupo</string>
+    <string name="group_used_of_quota">%1$d de %2$d min hoje</string>
+    <string name="group_quota_exhausted">Cota esgotada</string>
+    <string name="group_cooldown_chip">Espera ativa</string>
+    <string name="group_inactive_chip">Inativo</string>
+    <string name="group_session_rule">%1$d min por sessão</string>
+    <string name="group_view_apps">Ver apps (%1$d)</string>
+    <string name="group_hide_apps">Ocultar apps</string>
+    <string name="group_edit">Editar grupo</string>
+    <string name="group_toggle_desc">Ativar ou desativar %1$s</string>
+    <string name="group_manage_apps">Gerenciar apps</string>
+    <string name="group_empty_apps">Nenhum app neste grupo ainda.</string>
+    <string name="group_app_usage">%1$d min · %2$d sessões</string>
+    <string name="group_app_usage_empty">Ainda não usado hoje</string>
+    <string name="group_delete_title">Excluir grupo?</string>
+    <string name="group_delete_body">Os apps deste grupo deixam de ser monitorados. O histórico do dia é mantido.</string>
+    <string name="group_delete_action">Excluir grupo</string>
+    <string name="group_created_name">Nova categoria</string>
+
+    <!-- Group configuration -->
+    <string name="group_config_new_title">Novo grupo</string>
+    <string name="group_config_edit_title">Editar grupo</string>
+    <string name="group_config_subtitle_locked">Configurações travadas durante a espera ou cota esgotada.</string>
+    <string name="group_config_name_label">Nome do grupo</string>
+    <string name="group_config_icon_label">Ícone</string>
+    <string name="group_config_presets">Ritmo sugerido</string>
+    <string name="group_config_rhythm">Ritmo</string>
+    <string name="group_config_behavior">Comportamento</string>
+    <string name="group_config_pause">Pausa consciente</string>
+    <string name="group_config_session">Duração da sessão</string>
+    <string name="group_config_cooldown">Espera pós-sessão</string>
+    <string name="group_config_quota">Cota diária</string>
+    <string name="group_config_quota_shared_hint">A cota é compartilhada entre os apps deste grupo.</string>
+    <string name="group_config_progressive">Aumentar a pausa a cada sessão</string>
+    <string name="group_config_shared">Compartilhar cota e espera entre apps</string>
+    <string name="group_config_delete">Excluir este grupo</string>
+    <string name="unit_seconds">%1$d s</string>
+    <string name="unit_minutes">%1$d min</string>
+
+    <!-- App picker -->
+    <string name="picker_title">Apps de %1$s</string>
+    <string name="picker_subtitle">Escolha o que este grupo deve monitorar.</string>
+    <string name="picker_search_hint">Buscar app ou jogo</string>
+    <string name="picker_confirm">Confirmar (%1$d)</string>
+    <string name="picker_loading">Carregando apps instalados…</string>
+    <string name="picker_empty">Nenhum app encontrado.</string>
+    <string name="picker_section_selected">Selecionados (%1$d)</string>
+    <string name="picker_section_suggested">Sugeridos</string>
+    <string name="picker_section_all">Todos os apps</string>
+    <string name="picker_moved_from">Será movido de %1$s</string>
+
+    <!-- Anchor habit -->
+    <string name="anchor_title">Hábito âncora</string>
+    <string name="anchor_subtitle">A meta que aparece no botão de saída da barreira.</string>
+    <string name="anchor_custom_label">Personalizado (até 40 caracteres)</string>
+    <string name="anchor_custom_hint">Ex.: Meditar por 10 minutos</string>
+    <string name="anchor_change">Trocar</string>
+    <string name="anchor_current">Hábito atual</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_service_title">Serviço de acessibilidade</string>
+    <string name="settings_habit_title">Hábito âncora</string>
+    <string name="settings_habit_body">Aparece na barreira como a alternativa ao feed.</string>
+    <string name="settings_data_title">Dados</string>
+    <string name="settings_reset_today">Resetar estatísticas de hoje</string>
+    <string name="settings_reset_today_body">Zera o uso, a espera e as conquistas do dia.</string>
+    <string name="settings_reset_all">Apagar todo o histórico</string>
+    <string name="settings_reset_all_body">Remove uso, esperas e conquistas acumuladas. Os grupos são mantidos.</string>
+    <string name="settings_about_title">Sobre</string>
+    <string name="settings_about_body">Sem internet, sem anúncios, sem telemetria. Seus dados nunca saem do aparelho.</string>
+    <string name="settings_version">Versão %1$s</string>
+    <string name="settings_privacy">Privacidade por arquitetura: o app não declara a permissão de internet.</string>
+    <string name="reset_today_title">Resetar o dia?</string>
+    <string name="reset_today_body">O uso e as conquistas de hoje voltam a zero. A espera ativa também é encerrada.</string>
+    <string name="reset_today_action">Resetar hoje</string>
+    <string name="reset_all_title">Apagar todo o histórico?</string>
+    <string name="reset_all_body">Isso remove uso, esperas e conquistas acumuladas. Seus grupos e limites continuam iguais.</string>
+    <string name="reset_all_action">Apagar histórico</string>
+
+    <!-- Overlay: mindful pause -->
+    <string name="overlay_pause_overline">%1$s · %2$s</string>
+    <string name="overlay_pause_overline_simple">%1$s</string>
+    <string name="overlay_pause_title">Respire fundo</string>
+    <string name="overlay_pause_title_ready">Você ainda quer entrar?</string>
+    <string name="overlay_breathe_ready">Pausa concluída</string>
+    <string name="overlay_pause_cue">A vontade de abrir o feed passa. Ela só precisa de alguns segundos.</string>
+    <string name="overlay_pause_cue_ready">A pausa terminou. A escolha continua sendo sua.</string>
+    <string name="overlay_quota_remaining">Restam %1$s de cota hoje</string>
+    <string name="overlay_continue">Continuar por %1$d min</string>
+    <string name="overlay_waiting">Aguarde %1$d s</string>
+    <string name="overlay_quick">Só responder (1 min)</string>
+    <string name="overlay_exit_default">Sair e voltar ao que importa</string>
+    <string name="overlay_reclaimed_hint">Você resgata %1$d min ao sair agora</string>
+
+    <!-- Overlay: hard block -->
+    <string name="overlay_block_overline">BLOQUEIO ATIVO · %1$s</string>
+    <string name="overlay_block_cooldown_title">Pausa até %1$s</string>
+    <string name="overlay_block_quota_title">Limite de hoje atingido</string>
+    <string name="overlay_block_cooldown_body">A espera pós-sessão protege você do impulso de reabrir o app.</string>
+    <string name="overlay_block_cooldown_body_group">A espera do grupo %1$s protege você do impulso de pular de um app para outro.</string>
+    <string name="overlay_block_quota_body">Sua cota diária foi usada por completo. Ela volta a ficar disponível amanhã.</string>
+    <string name="overlay_block_quota_body_group">A cota do grupo %1$s foi usada por completo. Ela volta amanhã.</string>
+    <string name="overlay_block_return_home">Voltar ao início</string>
+
+    <!-- Overlay: floating pill -->
+    <string name="overlay_pill_desc">Sessão ativa, %1$s restantes. Toque para mover e mantenha pressionado para encerrar.</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_step">Passo %1$d de %2$d</string>
+    <string name="onboarding_activate_title">Primeiro, ative a proteção</string>
+    <string name="onboarding_activate_body">O FocusGuard usa o serviço de acessibilidade para perceber quando um app monitorado abre e mostrar a pausa antes do feed.</string>
+    <string name="onboarding_apps_title">O que você quer monitorar?</string>
+    <string name="onboarding_apps_body">Escolha os apps que mais consomem seu tempo. Você pode adicionar outros depois.</string>
+    <string name="onboarding_apps_selected">%1$d apps selecionados</string>
+    <string name="onboarding_rhythm_title">Defina seu primeiro ritmo</string>
+    <string name="onboarding_rhythm_body">Você pode ajustar cada grupo depois, em Grupos.</string>
+    <string name="onboarding_next">Continuar</string>
+    <string name="onboarding_finish">Começar a usar</string>
+    <string name="onboarding_group_name">Redes sociais</string>
+
+    <!-- Plurals -->
+    <plurals name="apps_count">
+        <item quantity="one">%d app</item>
+        <item quantity="other">%d apps</item>
+    </plurals>
+    <plurals name="minutes_remaining">
+        <item quantity="one">Resta %d min</item>
+        <item quantity="other">Restam %d min</item>
+    </plurals>
+    <plurals name="impulses_resisted">
+        <item quantity="one">%d impulso resistido</item>
+        <item quantity="other">%d impulsos resistidos</item>
+    </plurals>
 </resources>

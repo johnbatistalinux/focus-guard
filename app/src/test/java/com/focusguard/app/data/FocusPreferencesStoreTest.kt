@@ -222,7 +222,7 @@ class FocusPreferencesStoreTest {
         val group1 = FocusGroup(
             id = "grp_social",
             name = "Redes Sociais",
-            iconEmoji = "📱",
+            iconKey = "social",
             enabled = true,
             appIds = setOf("instagram", "tiktok"),
             mindfulPauseSeconds = 12,
@@ -235,7 +235,7 @@ class FocusPreferencesStoreTest {
         val group2 = FocusGroup(
             id = "grp_games",
             name = "Jogos & Diversao",
-            iconEmoji = "🎮",
+            iconKey = "games",
             enabled = false,
             appIds = setOf("custom_game1"),
             mindfulPauseSeconds = 20,
@@ -295,7 +295,7 @@ class FocusPreferencesStoreTest {
         val disabledGroup = FocusGroup(
             id = "grp_social",
             name = "Redes Sociais",
-            iconEmoji = "📱",
+            iconKey = "social",
             enabled = false,
             appIds = setOf("instagram", "tiktok")
         )

@@ -79,3 +79,15 @@
 - [x] Task 12.4: [Phase 3a - Group & Picker Sheets] Implement `GroupConfigSheet.kt` and `AppPickerSheet.kt`, replacing legacy dialogs
 - [x] Task 12.5: [Phase 3b - Overlay Redesign] Overhaul `OverlayController.kt` (flat mindful pause, thumb-zone CTAs, clean hard block, borderless pill, edge-to-edge insets)
 - [x] Task 12.6: [Gate - Verification & Release] Run JVM unit tests, audit APK size (< 1.5 MB), check memory footprint (< 12 MB RAM), and assemble release build
+
+## Milestone 13: v2.0.0 — Warm Dusk Redesign, Three-Tab Shell & Onboarding
+- [x] Task 13.1: [Docs & Domain] Approve the Warm Dusk direction, sync the Triad docs, add `GroupIcon` (stable keys + legacy emoji migration), `ActiveSessionSnapshot`, 7-day reward lists, and `totalSessionSeconds` on the floating timer
+- [x] Task 13.2: [Design System] Implement `ui/design/Theme.kt` (palette, type scale, spacing, radii, motion, insets, haptics, reduced motion) and `ui/design/UiKit.kt` (buttons, cards, chips, switches, seekbars, inputs, empty states, `QuotaBarView`)
+- [x] Task 13.3: [Resources] Rewrite `colors.xml`, `themes.xml`, `strings.xml` (full pt-BR copy + plurals) and add 19 hand-written vector drawables including 11 `GroupIcon` glyphs
+- [x] Task 13.4: [Presentation] Implement `DashboardPresenter` (`TodayState`, `SettingsState`, `GroupLimitState`, `AppUsageRow`, formatting and day labels)
+- [x] Task 13.5: [Screens] Implement `TodayScreen`, `GroupsScreen`, and `SettingsScreen`; rebuild `MainActivity` as a 3-tab shell with custom bottom navigation, onboarding redirect, and anti-bypass lock enforcement in every entry point
+- [x] Task 13.6: [Sheets & Cards] Rewrite `BottomSheet`, add `ConfirmSheet`, `ServiceStatusCard`, `ReclaimedCardView`, `AnchorHabitCardView`; rewrite `GroupCardView`, `GroupConfigSheet`, `AppPickerSheet`, and `AnchorHabitSheet`
+- [x] Task 13.7: [Onboarding] Implement `OnboardingActivity` (activate service, choose apps, pick a rhythm), persist `onboarding_completed_v2`, and auto-skip for existing installations
+- [x] Task 13.8: [Overlay] Split the overlay into `BarrierView` + `FloatingPillView`; rewrite `OverlayController` for window lifecycle, keep-screen-on, reduced motion, and settings barrier preview
+- [x] Task 13.9: [Data] Add onboarding flag, `resetTodayStats()`, `resetAllStats()`, and group icon migration to `FocusPreferencesStore`
+- [x] Task 13.10: [Gate] Bump version to 2.0.0 (versionCode 12), update docs, run the JVM suite, and verify the release APK stays far below the 1.5 MB budget

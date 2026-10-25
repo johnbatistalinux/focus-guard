@@ -1,11 +1,42 @@
 package com.focusguard.app.domain
 
 /**
+ * Curated group icon vocabulary. The persisted value is a stable [key], while
+ * [legacyEmoji] keeps pre-v2 configurations readable without a destructive migration.
+ */
+enum class GroupIcon(
+    val key: String,
+    val label: String,
+    val legacyEmoji: String
+) {
+    SOCIAL("social", "Redes sociais", "📱"),
+    GAMES("games", "Jogos", "🎮"),
+    VIDEO("video", "Vídeos e streaming", "🎬"),
+    SHOPPING("shopping", "Compras", "🛒"),
+    NEWS("news", "Notícias", "📰"),
+    CHAT("chat", "Mensagens", "💬"),
+    WORK("work", "Trabalho", "💼"),
+    STUDY("study", "Estudos", "📚"),
+    MUSIC("music", "Música", "🎵"),
+    BROWSER("browser", "Navegador", "🌐"),
+    CUSTOM("custom", "Outro", "🎯");
+
+    companion object {
+        fun fromStored(raw: String?): GroupIcon {
+            if (raw.isNullOrBlank()) return SOCIAL
+            return entries.firstOrNull { it.key == raw }
+                ?: entries.firstOrNull { it.legacyEmoji == raw }
+                ?: CUSTOM
+        }
+    }
+}
+
+/**
  * Grupo de limites de foco com cota e temporizadores independentes.
  *
  * @property id Identificador único estável do grupo (ex: "group_social", "group_games").
  * @property name Nome legível do grupo (ex: "Redes Sociais", "Jogos").
- * @property iconEmoji Emoji representativo do grupo (ex: "📱", "🎮").
+ * @property iconKey Chave estável do ícone vetorial do grupo (ver [GroupIcon]).
  * @property enabled Se o grupo está ativo para monitoramento e intervenções.
  * @property appIds Conjunto de IDs de [TargetApp] pertencentes a este grupo.
  * @property mindfulPauseSeconds Duração da pausa de respiração para apps deste grupo.
@@ -18,7 +49,7 @@ package com.focusguard.app.domain
 data class FocusGroup(
     val id: String,
     val name: String,
-    val iconEmoji: String = "📱",
+    val iconKey: String = GroupIcon.SOCIAL.key,
     val enabled: Boolean = true,
     val appIds: Set<String> = emptySet(),
     val mindfulPauseSeconds: Int = 10,
@@ -40,6 +71,7 @@ data class FocusGroup(
     val sessionDurationSeconds: Long get() = sessionDurationMinutes * 60L
     val cooldownSeconds: Long get() = cooldownMinutes * 60L
     val dailyQuotaSeconds: Long get() = dailyQuotaMinutes * 60L
+    val icon: GroupIcon get() = GroupIcon.fromStored(iconKey)
 
     companion object {
         const val DEFAULT_GROUP_SOCIAL_ID = "group_social"
@@ -91,7 +123,7 @@ data class FocusConfig(
             FocusGroup(
                 id = FocusGroup.DEFAULT_GROUP_SOCIAL_ID,
                 name = "Redes Sociais",
-                iconEmoji = "📱",
+                iconKey = GroupIcon.SOCIAL.key,
                 enabled = true,
                 appIds = enabledAppIds,
                 mindfulPauseSeconds = mindfulPauseSeconds,
@@ -104,7 +136,7 @@ data class FocusConfig(
             FocusGroup(
                 id = FocusGroup.DEFAULT_GROUP_GAMES_ID,
                 name = "Jogos & Outros",
-                iconEmoji = "🎮",
+                iconKey = GroupIcon.GAMES.key,
                 enabled = true,
                 appIds = emptySet(),
                 mindfulPauseSeconds = mindfulPauseSeconds,
@@ -158,14 +190,14 @@ data class FocusConfig(
     }
 
     companion object {
-        const val DEFAULT_ANCHOR_HABIT = "Ler 5 páginas 📖"
+        const val DEFAULT_ANCHOR_HABIT = "Ler 5 páginas"
 
         val PRESET_ANCHOR_HABITS: List<String> = listOf(
-            "Ler 5 páginas 📖",
-            "Beber um copo d'água 💧",
-            "Alongar os ombros 🧘",
-            "Respirar longe da tela 🌿",
-            "Voltar ao estudo/trabalho 🎯"
+            "Ler 5 páginas",
+            "Beber um copo d'água",
+            "Alongar os ombros",
+            "Respirar longe da tela",
+            "Voltar ao estudo ou trabalho"
         )
     }
 }
@@ -275,7 +307,20 @@ data class FocusRewardSummary(
     val tangibleEquivalentText: String,
     val focusLevelTitle: String,
     val last7DaysDots: String,
-    val consistencySummaryText: String
+    val consistencySummaryText: String,
+    val last7DaysWithinQuota: List<Boolean> = emptyList(),
+    val last7DaysTracked: List<Boolean> = emptyList()
+)
+
+/**
+ * Snapshot read-only da sessão ativa (ou pausada em segundo plano) para a tela Hoje.
+ */
+data class ActiveSessionSnapshot(
+    val appId: String,
+    val displayName: String,
+    val groupName: String,
+    val remainingSeconds: Long,
+    val totalSeconds: Long
 )
 
 /**
@@ -333,6 +378,7 @@ sealed interface InterventionAction {
         val displayName: String,
         val remainingSessionSeconds: Long,
         val remainingDailyQuotaSeconds: Long,
-        val groupName: String = ""
+        val groupName: String = "",
+        val totalSessionSeconds: Long = 0L
     ) : InterventionAction
 }

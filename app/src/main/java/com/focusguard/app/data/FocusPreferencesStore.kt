@@ -6,6 +6,7 @@ import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusLimits
 import com.focusguard.app.domain.FocusPolicyStore
 import com.focusguard.app.domain.FocusRewardState
+import com.focusguard.app.domain.GroupIcon
 import com.focusguard.app.domain.SessionGuard
 import com.focusguard.app.domain.TargetApp
 import java.util.concurrent.ConcurrentHashMap
@@ -58,7 +59,7 @@ class FocusPreferencesStore(
                 FocusGroup(
                     id = FocusGroup.DEFAULT_GROUP_SOCIAL_ID,
                     name = "Redes Sociais",
-                    iconEmoji = "📱",
+                    iconKey = GroupIcon.SOCIAL.key,
                     enabled = true,
                     appIds = enabledIds,
                     mindfulPauseSeconds = pauseSec,
@@ -71,7 +72,7 @@ class FocusPreferencesStore(
                 FocusGroup(
                     id = FocusGroup.DEFAULT_GROUP_GAMES_ID,
                     name = "Jogos & Outros",
-                    iconEmoji = "🎮",
+                    iconKey = GroupIcon.GAMES.key,
                     enabled = true,
                     appIds = emptySet(),
                     mindfulPauseSeconds = pauseSec,
@@ -325,6 +326,91 @@ class FocusPreferencesStore(
         }
     }
 
+    /**
+     * First-run detection. Existing installations (already carrying groups or a stored
+     * app selection) are considered onboarded, so the v2 wizard never interrupts them.
+     */
+    fun isOnboardingCompleted(): Boolean {
+        if (backend.getBoolean(KEY_ONBOARDING_COMPLETED_V2, false)) return true
+        val hasStoredGroups = backend.getString(KEY_FOCUS_GROUPS_V1, "").isNotBlank()
+        val hasStoredApps = backend.getStringSet(KEY_ENABLED_APP_IDS, emptySet()).isNotEmpty()
+        val completed = hasStoredGroups || hasStoredApps
+        if (completed) {
+            backend.putBoolean(KEY_ONBOARDING_COMPLETED_V2, true)
+        }
+        return completed
+    }
+
+    fun markOnboardingCompleted() {
+        backend.putBoolean(KEY_ONBOARDING_COMPLETED_V2, true)
+    }
+
+    /**
+     * Clears today's usage, cooldowns, session guards and daily rewards while preserving limits.
+     */
+    fun resetTodayStats() {
+        val today = SystemTimeProvider.currentEpochDay()
+        val config = getConfig()
+        val appIds = buildSet {
+            addAll(config.getEffectiveGroups().flatMap { it.appIds })
+            addAll(config.customApps.map { it.id })
+        }
+        for (appId in appIds) {
+            val current = getUsageState(appId, today)
+            saveUsageState(
+                current.copy(
+                    epochDay = today,
+                    usedDailySeconds = 0L,
+                    cooldownUntilRealtimeMs = 0L,
+                    sessionsStartedToday = 0
+                )
+            )
+        }
+        for (group in config.getEffectiveGroups()) {
+            val key = "group_${group.id}"
+            val current = getUsageState(key, today)
+            saveUsageState(
+                current.copy(
+                    epochDay = today,
+                    usedDailySeconds = 0L,
+                    cooldownUntilRealtimeMs = 0L,
+                    sessionsStartedToday = 0
+                )
+            )
+        }
+        saveSessionGuards(emptyList())
+        val reward = getRewardState(today)
+        saveRewardState(
+            reward.copy(
+                attemptsToday = 0,
+                abortedToday = 0,
+                voluntaryExitsToday = 0,
+                reclaimedSecondsToday = 0L
+            )
+        )
+    }
+
+    /**
+     * Clears all usage history and accumulated achievements, keeping groups and limits.
+     */
+    fun resetAllStats() {
+        resetTodayStats()
+        val today = SystemTimeProvider.currentEpochDay()
+        val reward = getRewardState(today)
+        saveRewardState(
+            reward.copy(
+                attemptsToday = 0,
+                abortedToday = 0,
+                voluntaryExitsToday = 0,
+                reclaimedSecondsToday = 0L,
+                totalReclaimedSeconds = 0L,
+                totalImpulsesBeaten = 0,
+                consistencyBitmask = 1L,
+                trackedDaysCount = 1
+            )
+        )
+    }
+
     private fun keyEpochDay(appId: String): String = "usage_${appId}_epoch_day"
     private fun keyUsedSeconds(appId: String): String = "usage_${appId}_used_sec"
     private fun keyCooldownUntil(appId: String): String = "usage_${appId}_cooldown_ms"
@@ -336,9 +422,9 @@ class FocusPreferencesStore(
         return groups.joinToString("\n") { group ->
             val cleanId = sanitizeField(group.id)
             val cleanName = sanitizeField(group.name)
-            val cleanEmoji = sanitizeField(group.iconEmoji)
+            val cleanIcon = sanitizeField(group.iconKey)
             val appIdsStr = group.appIds.joinToString(",") { sanitizeField(it) }
-            "$cleanId|$cleanName|$cleanEmoji|${group.enabled}|$appIdsStr|${group.mindfulPauseSeconds}|${group.sessionDurationMinutes}|${group.cooldownMinutes}|${group.dailyQuotaMinutes}|${group.progressivePauseEnabled}|${group.sharedQuota}"
+            "$cleanId|$cleanName|$cleanIcon|${group.enabled}|$appIdsStr|${group.mindfulPauseSeconds}|${group.sessionDurationMinutes}|${group.cooldownMinutes}|${group.dailyQuotaMinutes}|${group.progressivePauseEnabled}|${group.sharedQuota}"
         }
     }
 
@@ -353,7 +439,8 @@ class FocusPreferencesStore(
                 val id = parts[0].trim()
                 val name = parts[1].trim()
                 if (id.isEmpty() || name.isEmpty()) continue
-                val emoji = parts[2].trim().ifEmpty { "📱" }
+                val emoji = parts[2].trim().ifEmpty { GroupIcon.SOCIAL.key }
+                val icon = GroupIcon.fromStored(emoji)
                 val enabled = parts[3].toBooleanStrictOrNull() ?: true
                 val appIds = if (parts[4].isBlank()) emptySet() else parts[4].split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
                 val pauseSec = parts[5].toIntOrNull()?.coerceIn(FocusLimits.PAUSE_SECONDS) ?: DEFAULT_PAUSE_SEC
@@ -367,7 +454,7 @@ class FocusPreferencesStore(
                     FocusGroup(
                         id = id,
                         name = name,
-                        iconEmoji = emoji,
+                        iconKey = icon.key,
                         enabled = enabled,
                         appIds = appIds,
                         mindfulPauseSeconds = pauseSec,
@@ -433,6 +520,7 @@ class FocusPreferencesStore(
         private const val KEY_CUSTOM_APPS_V1 = "cfg_custom_apps_v1"
         private const val KEY_SHARED_QUOTA_DEFAULT = "cfg_shared_quota_default"
         private const val KEY_SESSION_GUARDS_V1 = "session_guards_v1"
+        private const val KEY_ONBOARDING_COMPLETED_V2 = "onboarding_completed_v2"
 
         private const val KEY_REWARD_EPOCH_DAY = "reward_epoch_day"
         private const val KEY_REWARD_ATTEMPTS_TODAY = "reward_attempts_today"

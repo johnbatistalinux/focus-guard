@@ -39,8 +39,6 @@ class MainThreadTicker(
         handler.removeCallbacks(tickRunnable)
     }
 
-    fun isActive(): Boolean = isRunning
-
     companion object {
         private const val TICK_INTERVAL_MS = 1000L
     }

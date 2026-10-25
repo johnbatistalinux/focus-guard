@@ -23,7 +23,7 @@ class FocusPolicyEngineTest {
                 cooldownMinutes = 10,
                 dailyQuotaMinutes = 30,
                 progressivePauseEnabled = true,
-                selectedAnchorHabit = "Ler 5 páginas 📖"
+                selectedAnchorHabit = "Ler 5 páginas"
             )
         )
         engine = FocusPolicyEngine(store = fakeStore, timeProvider = fakeTime)
@@ -192,7 +192,7 @@ class FocusPolicyEngineTest {
         assertEquals("instagram", openAction.appId)
         assertEquals(10, openAction.remainingPauseSeconds)
         assertFalse(openAction.readyToStartSession)
-        assertEquals("Fechar e ir: Ler 5 páginas 📖", openAction.anchorActionLabel)
+        assertEquals("Fechar e ir: Ler 5 páginas", openAction.anchorActionLabel)
         assertFalse(openAction.allowQuickMicroSession)
         assertTrue(engine.shouldRunTicker())
 
@@ -220,7 +220,8 @@ class FocusPolicyEngineTest {
                 appId = "instagram",
                 displayName = "Instagram",
                 remainingSessionSeconds = 300L,
-                remainingDailyQuotaSeconds = 1800L
+                remainingDailyQuotaSeconds = 1800L,
+                totalSessionSeconds = 300L
             ),
             sessionAction
         )
@@ -258,7 +259,8 @@ class FocusPolicyEngineTest {
                 appId = "instagram",
                 displayName = "Instagram",
                 remainingSessionSeconds = 240L,
-                remainingDailyQuotaSeconds = 1740L
+                remainingDailyQuotaSeconds = 1740L,
+                totalSessionSeconds = 240L
             ),
             resumeAction
         )
@@ -335,7 +337,8 @@ class FocusPolicyEngineTest {
                 appId = "instagram",
                 displayName = "Instagram",
                 remainingSessionSeconds = 1L,
-                remainingDailyQuotaSeconds = 1L
+                remainingDailyQuotaSeconds = 1L,
+                totalSessionSeconds = 1L
             ),
             startAction
         )
@@ -377,7 +380,7 @@ class FocusPolicyEngineTest {
         assertEquals(15L, summary.reclaimedMinutesToday)
         assertEquals(15L, summary.totalReclaimedMinutes)
         assertTrue(summary.tangibleEquivalentText.contains("páginas lidas"))
-        assertEquals("Iniciante Consciente 🌱", summary.focusLevelTitle)
+        assertEquals("Iniciante consciente", summary.focusLevelTitle)
     }
 
     @Test
@@ -463,7 +466,8 @@ class FocusPolicyEngineTest {
                 appId = "instagram",
                 displayName = "Instagram",
                 remainingSessionSeconds = 270L,
-                remainingDailyQuotaSeconds = 1770L
+                remainingDailyQuotaSeconds = 1770L,
+                totalSessionSeconds = 270L
             ),
             resumedInstagram
         )
@@ -575,7 +579,7 @@ class FocusPolicyEngineTest {
         val socialGroup = FocusGroup(
             id = "group_social_test",
             name = "Redes Sociais",
-            iconEmoji = "📱",
+            iconKey = "social",
             enabled = true,
             appIds = setOf("instagram", "tiktok"),
             mindfulPauseSeconds = 5,
@@ -649,7 +653,7 @@ class FocusPolicyEngineTest {
         val gamesGroup = FocusGroup(
             id = "group_games_test",
             name = "Jogos",
-            iconEmoji = "🎮",
+            iconKey = "games",
             enabled = true,
             appIds = setOf("custom_brawl"),
             dailyQuotaMinutes = 20,

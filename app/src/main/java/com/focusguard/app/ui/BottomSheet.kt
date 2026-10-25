@@ -2,34 +2,38 @@ package com.focusguard.app.ui
 
 import android.app.Dialog
 import android.content.Context
-import android.graphics.Color
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.focusguard.app.R
+import com.focusguard.app.ui.design.Palette
+import com.focusguard.app.ui.design.Radius
+import com.focusguard.app.ui.design.Space
+import com.focusguard.app.ui.design.Theme
+import com.focusguard.app.ui.design.TypeScale
+import com.focusguard.app.ui.design.dp
+import com.focusguard.app.ui.design.matchWrap
 
 /**
- * Native lightweight bottom sheet dialog with drag handle, scrollable body,
- * and sticky action footer. Zero external UI dependencies.
+ * Native lightweight bottom sheet: warm surface, drag handle, scrollable body,
+ * hairline-separated sticky footer and edge-to-edge bottom inset.
  */
 open class BottomSheet(context: Context) : Dialog(context, R.style.Theme_FocusGuard_BottomSheet) {
 
     private lateinit var rootContainer: LinearLayout
     private lateinit var titleTextView: TextView
     private lateinit var subtitleTextView: TextView
-    private lateinit var bodyScrollView: ScrollView
+    private lateinit var headerLayout: LinearLayout
     private lateinit var bodyContentLayout: LinearLayout
     private lateinit var stickyFooterLayout: LinearLayout
+    private lateinit var footerDivider: View
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,19 +47,18 @@ open class BottomSheet(context: Context) : Dialog(context, R.style.Theme_FocusGu
             setGravity(Gravity.BOTTOM)
             @Suppress("DEPRECATION")
             setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            // Ensure window allows drawing over nav bar for insets
             addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            @Suppress("DEPRECATION")
+            navigationBarColor = android.graphics.Color.TRANSPARENT
         }
     }
 
     private fun buildSheetLayout() {
         val density = context.resources.displayMetrics.density
-        fun dp(v: Int): Int = (v * density + 0.5f).toInt()
         val screenHeight = context.resources.displayMetrics.heightPixels
-        val maxBodyHeight = (screenHeight * 0.65f).toInt()
+        val maxBodyHeight = (screenHeight * 0.66f).toInt()
 
-        // 1. Root Container with top-rounded surface
-        val cornerRadius = dp(20).toFloat()
+        val cornerRadius = context.dp(Radius.SHEET).toFloat()
         val topRoundedSurface = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadii = floatArrayOf(
@@ -63,7 +66,7 @@ open class BottomSheet(context: Context) : Dialog(context, R.style.Theme_FocusGu
                 cornerRadius, cornerRadius,
                 0f, 0f, 0f, 0f
             )
-            setColor(FocusTheme.COLOR_SURFACE)
+            setColor(Palette.SURFACE)
         }
 
         rootContainer = LinearLayout(context).apply {
@@ -75,42 +78,36 @@ open class BottomSheet(context: Context) : Dialog(context, R.style.Theme_FocusGu
             )
         }
 
-        // 2. Drag Handle
         val dragHandle = View(context).apply {
-            val handleWidth = dp(40)
-            val handleHeight = dp(4)
-            val lp = LinearLayout.LayoutParams(handleWidth, handleHeight).apply {
+            layoutParams = LinearLayout.LayoutParams(context.dp(40), context.dp(4)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = dp(12)
-                bottomMargin = dp(12)
+                topMargin = context.dp(Space.M)
+                bottomMargin = context.dp(Space.S)
             }
-            layoutParams = lp
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                this.cornerRadius = dp(2).toFloat()
-                setColor(FocusTheme.COLOR_ELEVATED)
-            }
+            background = Theme.box(Palette.ELEVATED, Radius.PILL)
         }
         rootContainer.addView(dragHandle)
 
-        // 3. Header: Title and optional subtitle
-        val headerLayout = LinearLayout(context).apply {
+        headerLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val padH = dp(20)
-            setPadding(padH, 0, padH, dp(8))
+            setPadding(context.dp(Space.XL), 0, context.dp(Space.XL), context.dp(Space.S))
         }
 
-        titleTextView = TextView(context).apply {
-            setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            typeface = Typeface.DEFAULT_BOLD
-            visibility = View.GONE
-        }
+        titleTextView = Theme.text(
+            context,
+            "",
+            TypeScale.TITLE_L_SP,
+            Palette.TEXT_PRIMARY,
+            Theme.MEDIUM
+        ).apply { visibility = View.GONE }
 
-        subtitleTextView = TextView(context).apply {
-            setTextColor(FocusTheme.COLOR_TEXT_MUTED)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setPadding(0, dp(2), 0, 0)
+        subtitleTextView = Theme.text(
+            context,
+            "",
+            TypeScale.CAPTION_SP,
+            Palette.TEXT_MUTED
+        ).apply {
+            setPadding(0, context.dp(Space.XS), 0, 0)
             visibility = View.GONE
         }
 
@@ -118,14 +115,12 @@ open class BottomSheet(context: Context) : Dialog(context, R.style.Theme_FocusGu
         headerLayout.addView(subtitleTextView)
         rootContainer.addView(headerLayout)
 
-        // 4. Scrollable Body
         bodyContentLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val padH = dp(20)
-            setPadding(padH, dp(4), padH, dp(8))
+            setPadding(context.dp(Space.XL), context.dp(Space.XS), context.dp(Space.XL), context.dp(Space.S))
         }
 
-        bodyScrollView = object : ScrollView(context) {
+        val bodyScrollView = object : ScrollView(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 val constrainedHeight = MeasureSpec.makeMeasureSpec(maxBodyHeight, MeasureSpec.AT_MOST)
                 super.onMeasure(widthMeasureSpec, constrainedHeight)
@@ -142,33 +137,40 @@ open class BottomSheet(context: Context) : Dialog(context, R.style.Theme_FocusGu
         }
         rootContainer.addView(bodyScrollView)
 
-        // 5. Sticky Footer
+        footerDivider = View(context).apply {
+            setBackgroundColor(Palette.HAIRLINE)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dp(1))
+            visibility = View.GONE
+        }
+        rootContainer.addView(footerDivider)
+
         stickyFooterLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val padH = dp(20)
-            val padV = dp(14)
-            setPadding(padH, padV, padH, padV)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            setPadding(context.dp(Space.XL), context.dp(Space.M), context.dp(Space.XL), context.dp(Space.M))
+            layoutParams = matchWrap()
         }
-        FocusTheme.applySystemWindowInsetsPadding(
-            stickyFooterLayout,
-            applyTop = false,
-            applyBottom = true
-        )
+        Theme.applyInsets(stickyFooterLayout, applyTop = false, applyBottom = true)
         rootContainer.addView(stickyFooterLayout)
     }
 
     fun setSheetTitle(title: CharSequence) {
         titleTextView.text = title
         titleTextView.visibility = if (title.isNotBlank()) View.VISIBLE else View.GONE
+        updateHeaderVisibility()
     }
 
     fun setSheetSubtitle(subtitle: CharSequence?) {
         subtitleTextView.text = subtitle
         subtitleTextView.visibility = if (!subtitle.isNullOrBlank()) View.VISIBLE else View.GONE
+        updateHeaderVisibility()
+    }
+
+    private fun updateHeaderVisibility() {
+        if (::headerLayout.isInitialized) {
+            headerLayout.visibility = if (
+                titleTextView.visibility == View.VISIBLE || subtitleTextView.visibility == View.VISIBLE
+            ) View.VISIBLE else View.GONE
+        }
     }
 
     fun setBodyView(view: View) {
@@ -176,20 +178,9 @@ open class BottomSheet(context: Context) : Dialog(context, R.style.Theme_FocusGu
         bodyContentLayout.addView(view)
     }
 
-    fun addBodyView(view: View, params: LinearLayout.LayoutParams? = null) {
-        if (params != null) {
-            bodyContentLayout.addView(view, params)
-        } else {
-            bodyContentLayout.addView(view)
-        }
-    }
-
     fun setFooterView(view: View) {
         stickyFooterLayout.removeAllViews()
         stickyFooterLayout.addView(view)
+        footerDivider.visibility = View.VISIBLE
     }
-
-    fun getBodyContainer(): LinearLayout = bodyContentLayout
-
-    fun getFooterContainer(): LinearLayout = stickyFooterLayout
 }

@@ -1,309 +1,370 @@
 package com.focusguard.app.ui
 
 import android.content.Context
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.util.TypedValue
+import android.graphics.PorterDuff
 import android.view.Gravity
 import android.view.View
-import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
 import com.focusguard.app.R
-import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusLimits
-import com.focusguard.app.domain.TargetApp
-import com.focusguard.app.ui.FocusTheme.performLightHaptic
+import com.focusguard.app.domain.FocusGroup
+import com.focusguard.app.ui.design.ButtonStyle
+import com.focusguard.app.ui.design.Motion
+import com.focusguard.app.ui.design.Palette
+import com.focusguard.app.ui.design.QuotaBarView
+import com.focusguard.app.ui.design.Radius
+import com.focusguard.app.ui.design.Space
+import com.focusguard.app.ui.design.Theme
+import com.focusguard.app.ui.design.TypeScale
+import com.focusguard.app.ui.design.button
+import com.focusguard.app.ui.design.dp
+import com.focusguard.app.ui.design.matchWrap
+import com.focusguard.app.ui.design.monogram
+import com.focusguard.app.ui.design.statusChip
+import com.focusguard.app.ui.design.themedSwitch
+import com.focusguard.app.ui.presenter.GroupLimitState
+import com.focusguard.app.ui.design.hapticLight
 
 /**
- * Expandable group card featuring progressive disclosure, live quota gauge,
- * status badge, rule summary, and 48dp action targets.
+ * Group card v2: isolated switch, readable quota with numbers, explicit expand
+ * affordance and in-place updates that preserve expansion state.
  */
 class GroupCardView(
     context: Context,
     private val group: FocusGroup,
-    private val isLocked: Boolean,
     private val onToggleEnabled: (Boolean) -> Unit,
-    private val onAdjustLimitsClicked: () -> Unit,
+    private val onEditClicked: () -> Unit,
     private val onManageAppsClicked: () -> Unit,
     private val onLockedActionAttempt: () -> Unit
 ) : LinearLayout(context) {
 
-    private val quotaProgressFill: View
-    private val quotaProgressEmpty: View
-    private val subtitleContainer: LinearLayout
-    private val expandableContainer: LinearLayout
+    private val iconBadge: FrameLayout
+    private val iconImage: ImageView
+    private val nameView: TextView
+    private val metaView: TextView
+    private val toggle: Switch
+    private val quotaText: TextView
+    private val statusChipView: TextView
+    private val quotaBar: QuotaBarView
+    private val expandLabel: TextView
+    private val chevron: ImageView
+    private val expandedContainer: LinearLayout
+    private val appsContainer: LinearLayout
+    private val editButton: android.widget.Button
+    private val appsButton: android.widget.Button
+
     private var isExpanded: Boolean = false
+    private var isLocked: Boolean = false
+    private var appCount: Int = group.appIds.size
+
+    val groupId: String get() = group.id
 
     init {
         orientation = VERTICAL
-        val density = context.resources.displayMetrics.density
-        fun dp(v: Int): Int = (v * density + 0.5f).toInt()
+        background = Theme.box(Palette.SURFACE, Radius.CARD)
+        val pad = context.dp(Space.L)
+        setPadding(pad, pad, pad, context.dp(Space.S))
+        layoutParams = matchWrap().apply { bottomMargin = context.dp(Space.M) }
 
-        background = FocusTheme.flatBox(FocusTheme.COLOR_SURFACE, cornerDp = 16, density = density)
-        val pad = dp(16)
-        setPadding(pad, pad, pad, pad)
-        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = dp(14)
-        }
-
-        // Header Row: [Emoji + Name + Badges] --- [Switch]
-        val headerRow = LinearLayout(context).apply {
+        val header = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(48)
-            setOnClickListener { view ->
-                isExpanded = !isExpanded
-                expandableContainer.visibility = if (isExpanded) View.VISIBLE else View.GONE
-                view.performLightHaptic()
+        }
+        iconBadge = FrameLayout(context).apply {
+            val size = context.dp(40)
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                marginEnd = context.dp(Space.M)
             }
+            background = Theme.box(Palette.ACCENT_SUBTLE, Radius.PILL)
         }
-
-        val titleContainer = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
+        iconImage = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            layoutParams = FrameLayout.LayoutParams(context.dp(22), context.dp(22), Gravity.CENTER)
+            setColorFilter(Palette.ACCENT, PorterDuff.Mode.SRC_IN)
         }
+        iconBadge.addView(iconImage)
 
-        val nameView = TextView(context).apply {
-            text = "${group.iconEmoji} ${group.name}"
-            setTextColor(if (group.enabled) FocusTheme.COLOR_TEXT_PRIMARY else FocusTheme.COLOR_TEXT_MUTED)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        titleContainer.addView(nameView)
-
-        if (!group.enabled) {
-            val inactiveBadge = TextView(context).apply {
-                text = context.getString(R.string.group_inactive_badge)
-                setTextColor(FocusTheme.COLOR_TEXT_MUTED)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-                background = FocusTheme.flatBox(FocusTheme.COLOR_ELEVATED, cornerDp = 6, density = density)
-                setPadding(dp(6), dp(2), dp(6), dp(2))
-                layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-                    marginStart = dp(8)
-                }
-            }
-            titleContainer.addView(inactiveBadge)
-        }
-
-        val groupSwitch = Switch(context).apply {
-            isChecked = group.enabled
-            alpha = if (isLocked) 0.4f else 1.0f
-            setOnCheckedChangeListener { buttonView, isChecked ->
-                if (isLocked) {
-                    buttonView.isChecked = !isChecked
-                    onLockedActionAttempt()
-                } else {
-                    onToggleEnabled(isChecked)
-                }
-            }
-        }
-
-        headerRow.addView(titleContainer)
-        headerRow.addView(groupSwitch)
-        addView(headerRow)
-
-        // Quota Text & Rule Summary
-        subtitleContainer = LinearLayout(context).apply {
+        val textCol = LinearLayout(context).apply {
             orientation = VERTICAL
-            setPadding(0, dp(4), 0, dp(6))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
+        nameView = Theme.text(context, group.name, TypeScale.TITLE_M_SP, Palette.TEXT_PRIMARY, Theme.MEDIUM)
+        metaView = Theme.text(context, "", TypeScale.CAPTION_SP, Palette.TEXT_MUTED).apply {
+            setPadding(0, context.dp(2), 0, 0)
+        }
+        textCol.addView(nameView)
+        textCol.addView(metaView)
 
-        val quotaProgressTrack = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(6)).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(8)
+        toggle = themedSwitch(context, group.enabled).apply {
+            contentDescription = context.getString(R.string.group_toggle_desc, group.name)
+        }
+        toggle.setOnCheckedChangeListener { buttonView, checked ->
+            if (isLocked) {
+                buttonView.isChecked = !checked
+                onLockedActionAttempt()
+            } else {
+                onToggleEnabled(checked)
             }
-            background = FocusTheme.flatBox(FocusTheme.COLOR_ELEVATED, cornerDp = 3, density = density)
         }
 
-        quotaProgressFill = View(context).apply {
-            layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 0.001f)
-        }
-        quotaProgressEmpty = View(context).apply {
-            layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)
-        }
-        quotaProgressTrack.addView(quotaProgressFill)
-        quotaProgressTrack.addView(quotaProgressEmpty)
+        header.addView(iconBadge)
+        header.addView(textCol)
+        header.addView(toggle)
+        addView(header)
 
-        addView(subtitleContainer)
-        addView(quotaProgressTrack)
+        val quotaHeader = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, context.dp(Space.M), 0, 0)
+        }
+        quotaText = Theme.text(context, "", TypeScale.LABEL_SP, Palette.TEXT_SECONDARY, Theme.MEDIUM)
+            .apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) }
+        statusChipView = statusChip(context, "", Palette.TEXT_MUTED, Palette.ELEVATED)
+        quotaHeader.addView(quotaText)
+        quotaHeader.addView(statusChipView)
+        addView(quotaHeader)
 
-        // Expandable Container
-        expandableContainer = LinearLayout(context).apply {
+        quotaBar = QuotaBarView(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                context.dp(8)
+            ).apply { topMargin = context.dp(Space.S) }
+        }
+        addView(quotaBar)
+
+        val dividerView = View(context).apply {
+            setBackgroundColor(Palette.HAIRLINE)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                context.dp(1)
+            ).apply { topMargin = context.dp(Space.M) }
+        }
+        addView(dividerView)
+
+        val expandRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = context.dp(48)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { view ->
+                view.hapticLight()
+                toggleExpanded()
+            }
+        }
+        expandLabel = Theme.text(
+            context,
+            context.getString(R.string.group_view_apps, appCount),
+            TypeScale.LABEL_SP,
+            Palette.ACCENT,
+            Theme.MEDIUM
+        ).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        chevron = ImageView(context).apply {
+            setImageResource(R.drawable.ic_chevron_down)
+            setColorFilter(Palette.ACCENT, PorterDuff.Mode.SRC_IN)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            layoutParams = LinearLayout.LayoutParams(context.dp(18), context.dp(18))
+        }
+        expandRow.addView(expandLabel)
+        expandRow.addView(chevron)
+        addView(expandRow)
+
+        expandedContainer = LinearLayout(context).apply {
             orientation = VERTICAL
             visibility = View.GONE
-            setPadding(0, dp(8), 0, 0)
+            setPadding(0, 0, 0, context.dp(Space.S))
         }
-        addView(expandableContainer)
+        appsContainer = LinearLayout(context).apply { orientation = VERTICAL }
+        expandedContainer.addView(appsContainer)
+
+        val actions = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            setPadding(0, context.dp(Space.S), 0, 0)
+        }
+        editButton = button(context, context.getString(R.string.group_edit), ButtonStyle.SECONDARY) {
+            if (isLocked) onLockedActionAttempt() else onEditClicked()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = context.dp(Space.XS)
+            }
+        }
+        appsButton = button(context, context.getString(R.string.group_manage_apps), ButtonStyle.GHOST) {
+            if (isLocked) onLockedActionAttempt() else onManageAppsClicked()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = context.dp(Space.XS)
+            }
+        }
+        actions.addView(editButton)
+        actions.addView(appsButton)
+        expandedContainer.addView(actions)
+        addView(expandedContainer)
     }
 
-    fun bindData(
-        usedMinutes: Long,
-        quotaMinutes: Int,
-        isCooldown: Boolean,
-        apps: List<TargetApp>,
-        appsStats: Map<String, Pair<Long, Int>>
-    ) {
-        val density = context.resources.displayMetrics.density
-        fun dp(v: Int): Int = (v * density + 0.5f).toInt()
-
-        // 1. Quota Progress Fill & Color
-        val ratio = if (quotaMinutes > 0) (usedMinutes.toFloat() / quotaMinutes.toFloat()).coerceIn(0f, 1f) else 0f
-        val level = FocusLimits.quotaLevel(usedMinutes, quotaMinutes)
-        val fillColor = when (level) {
-            FocusLimits.QuotaLevel.EXHAUSTED -> FocusTheme.COLOR_DANGER
-            FocusLimits.QuotaLevel.WARNING -> FocusTheme.COLOR_WARN
-            FocusLimits.QuotaLevel.OK -> FocusTheme.COLOR_ACCENT
+    fun bindData(state: GroupLimitState, locked: Boolean) {
+        isLocked = locked
+        appCount = state.apps.size
+        iconImage.setImageResource(state.group.icon.drawableRes())
+        nameView.text = state.group.name
+        nameView.setTextColor(if (state.group.enabled) Palette.TEXT_PRIMARY else Palette.TEXT_MUTED)
+        metaView.text = buildString {
+            append(
+                context.resources.getQuantityString(
+                    R.plurals.apps_count,
+                    appCount,
+                    appCount
+                )
+            )
+            append(" · ")
+            append(context.getString(R.string.group_session_rule, state.group.sessionDurationMinutes))
         }
+        metaView.setTextColor(Palette.TEXT_MUTED)
 
-        quotaProgressFill.layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, ratio.coerceAtLeast(0.001f))
-        quotaProgressFill.background = FocusTheme.flatBox(fillColor, cornerDp = 3, density = density)
-        quotaProgressEmpty.layoutParams = LayoutParams(0, LayoutParams.MATCH_PARENT, (1f - ratio).coerceAtLeast(0.001f))
-
-        // 2. Subtitle update
-        subtitleContainer.removeAllViews()
-
-        val progressRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val progressText = TextView(context).apply {
-            text = "$usedMinutes de $quotaMinutes min hoje"
-            setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
-        }
-        progressRow.addView(progressText)
-
-        if (isCooldown) {
-            val cooldownBadge = TextView(context).apply {
-                text = context.getString(R.string.group_cooldown_badge)
-                setTextColor(FocusTheme.COLOR_DANGER)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                typeface = Typeface.DEFAULT_BOLD
-                background = FocusTheme.flatBox(FocusTheme.COLOR_DANGER_SUBTLE, cornerDp = 6, density = density)
-                setPadding(dp(8), dp(2), dp(8), dp(2))
+        toggle.setOnCheckedChangeListener(null)
+        toggle.isChecked = state.group.enabled
+        toggle.alpha = if (locked) 0.45f else 1f
+        toggle.setOnCheckedChangeListener { buttonView, checked ->
+            if (isLocked) {
+                buttonView.isChecked = !checked
+                onLockedActionAttempt()
+            } else {
+                onToggleEnabled(checked)
             }
-            progressRow.addView(cooldownBadge)
-        } else if (level == FocusLimits.QuotaLevel.EXHAUSTED) {
-            val exhaustedBadge = TextView(context).apply {
-                text = context.getString(R.string.group_quota_exhausted_badge)
-                setTextColor(FocusTheme.COLOR_WARN)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                typeface = Typeface.DEFAULT_BOLD
-                background = FocusTheme.flatBox(FocusTheme.COLOR_WARN_SUBTLE, cornerDp = 6, density = density)
-                setPadding(dp(8), dp(2), dp(8), dp(2))
-            }
-            progressRow.addView(exhaustedBadge)
         }
-        subtitleContainer.addView(progressRow)
 
-        val ruleText = TextView(context).apply {
-            text = "${group.sessionDurationMinutes} min por sessão · pausa de ${group.mindfulPauseSeconds} s · espera de ${group.cooldownMinutes} min"
-            setTextColor(FocusTheme.COLOR_TEXT_SECONDARY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setPadding(0, dp(2), 0, 0)
-        }
-        subtitleContainer.addView(ruleText)
-
-        // 3. Populate Expandable Apps & Action Buttons
-        expandableContainer.removeAllViews()
-        if (apps.isEmpty()) {
-            val emptyPrompt = TextView(context).apply {
-                text = context.getString(R.string.group_empty_prompt)
-                setTextColor(FocusTheme.COLOR_TEXT_MUTED)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                gravity = Gravity.CENTER
-                setPadding(0, dp(8), 0, dp(12))
-            }
-            expandableContainer.addView(emptyPrompt)
+        val ratio = if (state.quotaMinutes > 0) {
+            state.usedMinutes.toFloat() / state.quotaMinutes.toFloat()
         } else {
-            for (app in apps) {
-                val stats = appsStats[app.id] ?: Pair(0L, 0)
-                val appRow = LinearLayout(context).apply {
-                    orientation = HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    minimumHeight = dp(40)
-                    setPadding(0, dp(4), 0, dp(4))
-                }
+            0f
+        }
+        val barColor = when {
+            state.isCooldown -> Palette.DANGER
+            state.level == FocusLimits.QuotaLevel.EXHAUSTED -> Palette.DANGER
+            state.level == FocusLimits.QuotaLevel.WARNING -> Palette.WARN
+            else -> Palette.ACCENT
+        }
+        quotaBar.setProgress(ratio, barColor)
+        quotaText.text = context.getString(
+            R.string.group_used_of_quota,
+            state.usedMinutes,
+            state.quotaMinutes
+        )
 
-                val brandDot = View(context).apply {
-                    val size = dp(8)
-                    layoutParams = LayoutParams(size, size).apply {
-                        marginEnd = dp(10)
+        when {
+            !state.group.enabled -> {
+                statusChipView.text = context.getString(R.string.group_inactive_chip)
+                statusChipView.setTextColor(Palette.TEXT_MUTED)
+                statusChipView.background = Theme.box(Palette.ELEVATED, Radius.PILL)
+            }
+            state.isCooldown -> {
+                statusChipView.text = context.getString(R.string.group_cooldown_chip)
+                statusChipView.setTextColor(Palette.DANGER)
+                statusChipView.background = Theme.box(Palette.DANGER_SUBTLE, Radius.PILL)
+            }
+            state.level == FocusLimits.QuotaLevel.EXHAUSTED -> {
+                statusChipView.text = context.getString(R.string.group_quota_exhausted)
+                statusChipView.setTextColor(Palette.WARN)
+                statusChipView.background = Theme.box(Palette.WARN_SUBTLE, Radius.PILL)
+            }
+            else -> {
+                statusChipView.text = context.resources.getQuantityString(
+                    R.plurals.minutes_remaining,
+                    state.remainingMinutes.toInt(),
+                    state.remainingMinutes.toInt()
+                )
+                statusChipView.setTextColor(Palette.SAGE)
+                statusChipView.background = Theme.box(Palette.SAGE_SUBTLE, Radius.PILL)
+            }
+        }
+
+        renderApps(state)
+        expandLabel.text = if (isExpanded) {
+            context.getString(R.string.group_hide_apps)
+        } else {
+            context.getString(R.string.group_view_apps, appCount)
+        }
+        editButton.alpha = if (locked) 0.5f else 1f
+        appsButton.alpha = if (locked) 0.5f else 1f
+    }
+
+    private fun renderApps(state: GroupLimitState) {
+        appsContainer.removeAllViews()
+        if (state.apps.isEmpty()) {
+            appsContainer.addView(
+                Theme.text(
+                    context,
+                    context.getString(R.string.group_empty_apps),
+                    TypeScale.CAPTION_SP,
+                    Palette.TEXT_MUTED
+                ).apply {
+                    setPadding(0, context.dp(Space.S), 0, context.dp(Space.S))
+                }
+            )
+            return
+        }
+        for (row in state.apps) {
+            val appRow = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = context.dp(48)
+            }
+            appRow.addView(
+                monogram(context, row.app.displayName, row.app.brandColorHex, sizeDp = 32).apply {
+                    layoutParams = (layoutParams as LinearLayout.LayoutParams).apply {
+                        marginEnd = context.dp(Space.M)
                     }
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(android.graphics.Color.parseColor(app.brandColorHex))
-                    }
                 }
-
-                val nameCol = TextView(context).apply {
-                    text = app.displayName
-                    setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                    layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
+            )
+            appRow.addView(
+                Theme.text(
+                    context,
+                    row.app.displayName,
+                    TypeScale.BODY_SP,
+                    Palette.TEXT_PRIMARY
+                ).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
-
-                val statsCol = TextView(context).apply {
-                    text = "${stats.first} min · ${stats.second} sessão(ões)"
-                    setTextColor(FocusTheme.COLOR_TEXT_MUTED)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                }
-
-                appRow.addView(brandDot)
-                appRow.addView(nameCol)
-                appRow.addView(statsCol)
-                expandableContainer.addView(appRow)
+            )
+            val usageText = if (row.usedMinutes == 0L && row.sessions == 0) {
+                context.getString(R.string.group_app_usage_empty)
+            } else {
+                context.getString(R.string.group_app_usage, row.usedMinutes, row.sessions)
             }
+            appRow.addView(
+                Theme.text(
+                    context,
+                    usageText,
+                    TypeScale.CAPTION_SP,
+                    Palette.TEXT_MUTED
+                )
+            )
+            appsContainer.addView(appRow)
         }
+    }
 
-        // Action Buttons Row (Ajustar Limites + Gerenciar Aplicativos)
-        val actionsRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            setPadding(0, dp(10), 0, 0)
+    fun expand() {
+        if (!isExpanded) toggleExpanded()
+    }
+
+    fun isExpanded(): Boolean = isExpanded
+
+    private fun toggleExpanded() {
+        isExpanded = !isExpanded
+        expandedContainer.visibility = if (isExpanded) View.VISIBLE else View.GONE
+        expandLabel.text = if (isExpanded) {
+            context.getString(R.string.group_hide_apps)
+        } else {
+            context.getString(R.string.group_view_apps, appCount)
         }
-
-        val adjustBtn = Button(context).apply {
-            text = context.getString(R.string.group_adjust_limits)
-            isAllCaps = false
-            setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            typeface = Typeface.DEFAULT_BOLD
-            minimumHeight = dp(48)
-            background = FocusTheme.flatRipple(FocusTheme.COLOR_ELEVATED, cornerDp = 10, density = density)
-            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp(6)
-            }
-            setOnClickListener {
-                if (isLocked) onLockedActionAttempt() else onAdjustLimitsClicked()
-            }
-        }
-
-        val appsBtn = Button(context).apply {
-            text = context.getString(R.string.group_add_apps)
-            isAllCaps = false
-            setTextColor(FocusTheme.COLOR_ACCENT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            typeface = Typeface.DEFAULT_BOLD
-            minimumHeight = dp(48)
-            background = FocusTheme.flatRipple(FocusTheme.COLOR_ELEVATED, cornerDp = 10, density = density)
-            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(6)
-            }
-            setOnClickListener {
-                if (isLocked) onLockedActionAttempt() else onManageAppsClicked()
-            }
-        }
-
-        actionsRow.addView(adjustBtn)
-        actionsRow.addView(appsBtn)
-        expandableContainer.addView(actionsRow)
+        chevron.animate()
+            .rotation(if (isExpanded) 180f else 0f)
+            .setDuration(Motion.FAST)
+            .start()
     }
 }

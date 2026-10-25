@@ -29,11 +29,13 @@ Commercial social media blockers and screen-time management apps (StayFree, AppB
 ### Primary Persona
 Android smartphone user with 4 GB of RAM who wants to break the automatic *deep scrolling* habit on Instagram and other social networks without sacrificing OS responsiveness or being bombarded by ads.
 
-### Journey 1: Lean Onboarding & Configuration
-1. User opens **FocusGuard**.
-2. Views the Accessibility Service status and a direct shortcut button to enable it in Android Settings.
-3. From the curated social media catalog (Instagram, TikTok, YouTube, X/Twitter, Reddit, Facebook, Threads, Kwai), toggles the switches for the apps to monitor.
-4. Adjusts (or keeps recommended defaults for) the global parameters:
+### Journey 1: Three-Step Onboarding & Configuration
+1. User opens **FocusGuard** for the first time and enters a three-step wizard (existing installations skip it automatically):
+   - **Step 1 — Activate protection:** explains why the accessibility service is required and links directly to `Settings.ACTION_ACCESSIBILITY_SETTINGS`.
+   - **Step 2 — Choose what to monitor:** curated catalog of social networks (Instagram, TikTok, YouTube, X/Twitter, Reddit, Facebook, Threads, Kwai) with multi-select rows.
+   - **Step 3 — Pick a starting rhythm:** one of the three presets (*Equilíbrio*, *Foco Total*, *Desmame Leve*), which creates the first group.
+2. The app then opens the three-tab shell: **Hoje** (daily briefing), **Grupos** (limits and apps) and **Ajustes** (service, anchor habit, data, about).
+3. From **Grupos**, the user can create additional categories and adjust (or keep recommended defaults for) the group parameters:
    - **Mindful Pause Duration** (Default: `10 seconds`)
    - **Allowed Session Duration** (Default: `5 minutes`)
    - **Post-Session Cooldown** (Default: `10 minutes`)
@@ -86,10 +88,15 @@ Android smartphone user with 4 GB of RAM who wants to break the automatic *deep 
    - **Category-Based Grouping (`FocusGroup`):** Users organize apps into focused categories (e.g., *Redes Sociais*, *Jogos*, *Vídeos & Streaming*), each with independent timers (mindful pause, session duration, cooldown, daily quota).
    - **Shared Quota Pool:** Apps in the same group share a unified daily quota. Spending time in any app in the group deducts from the group balance. Exhausting the group quota blocks all apps in that category while leaving others unaffected.
    - **Shared Group Cooldown:** Exiting a session in one app places the entire group in cooldown, preventing impulse app-hopping (e.g. from Instagram directly into TikTok).
-9. **Flat & Accessible Dark UI/UX Overhaul (v1.5):**
-   - **Dark-Only & Pure Flat Design:** Canvas `#0B0F14`, Surface `#131A24`, Elevated `#1C2634`. Eliminates decorative borders and multi-color clutter in favor of a single emerald accent (`#34D399`), tonal elevation, and semantic warnings.
-   - **Native Bottom Sheets:** Group configurations, app picker, and anchor habit settings open in lightweight native bottom sheets with sticky action footers.
-   - **Accessibility & Ergonomics (WCAG AA):** Minimum 48dp touch targets, font scaling resilience (up to 130%), edge-to-edge window inset padding (Android 15 / API 35), and standardized Portuguese copy in `strings.xml`.
+9. **Warm Dusk Design System & Three-Tab Shell (v2.0):**
+   - **Warm Dusk Palette:** Warm dark canvas `#12100E`, surface `#1C1815`, elevated `#27211C`, single amber accent `#E9B872`, sage success `#9CC5A1`, clay danger `#D9635A`. Calm, low-glare, and fully native.
+   - **Design Tokens (`ui/design/Theme.kt` + `UiKit.kt`):** Palette, type scale, 8pt spacing grid, radii, motion durations, haptics, reduced-motion detection, and reusable primitives (buttons, cards, chips, switches, seekbars, quota bars, empty states).
+   - **Three Tabs — Hoje, Grupos, Ajustes:** A custom bottom navigation bar (no navigation library) with a daily briefing, per-group limit management, and service/data settings.
+   - **Onboarding Wizard:** Separate `OnboardingActivity` with three steps (activate service, choose apps, pick a rhythm), shown only on first run and auto-skipped for existing users.
+   - **Stable Vector Iconography:** `GroupIcon` enum with 11 curated vector icons replacing emoji, with transparent migration from legacy emoji values.
+   - **Readable Numbers Over Metaphors:** Quotas are always shown as `used of total` with semantic colors and a compact 7-day consistency strip.
+   - **Testable Barrier Preview:** Ajustes can render the real overlay in preview mode without touching policy state.
+   - **Accessibility & Ergonomics (WCAG AA):** Minimum 48dp touch targets, font scaling resilience, edge-to-edge window insets, content descriptions on icon-only controls, and centralized Portuguese copy in `strings.xml`.
    - **Unified Domain Limits (`FocusLimits`):** Parameter bounds, session-to-quota coercion, quota level thresholds, and preset matching reside strictly in the pure Kotlin domain layer.
 
 

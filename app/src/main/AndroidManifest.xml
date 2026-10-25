@@ -29,6 +29,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.OnboardingActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
         <service
             android:name=".service.FocusAccessibilityService"
             android:enabled="true"

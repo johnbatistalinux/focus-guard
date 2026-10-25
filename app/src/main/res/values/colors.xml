@@ -1,12 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg_canvas">#0B0F14</color>
-    <color name="bg_surface">#131A24</color>
-    <color name="bg_elevated">#1C2634</color>
-    <color name="accent_emerald">#34D399</color>
-    <color name="text_primary">#F1F5F9</color>
-    <color name="text_secondary">#A0AEC0</color>
-    <color name="text_muted">#8190A5</color>
-    <color name="warn_amber">#F59E0B</color>
-    <color name="danger_red">#F87171</color>
+    <!-- Warm Dusk palette -->
+    <color name="bg_canvas">#12100E</color>
+    <color name="bg_surface">#1C1815</color>
+    <color name="bg_elevated">#27211C</color>
+    <color name="bg_sunken">#171310</color>
+    <color name="hairline">#3A322B</color>
+
+    <color name="text_primary">#F5EEE6</color>
+    <color name="text_secondary">#C9BDB1</color>
+    <color name="text_muted">#9C8F83</color>
+
+    <color name="accent_amber">#E9B872</color>
+    <color name="accent_on">#2A1C0C</color>
+    <color name="accent_sage">#9CC5A1</color>
+    <color name="warn_amber">#E08A4C</color>
+    <color name="danger_clay">#D9635A</color>
 </resources>

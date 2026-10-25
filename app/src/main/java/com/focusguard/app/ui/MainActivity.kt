@@ -2,224 +2,236 @@ package com.focusguard.app.ui
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Typeface
+import android.graphics.PorterDuff
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
-import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.focusguard.app.R
 import com.focusguard.app.data.FocusPreferencesStore
 import com.focusguard.app.data.FocusRuntime
-import com.focusguard.app.data.SystemTimeProvider
 import com.focusguard.app.domain.FocusConfig
 import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusPolicyEngine
-import com.focusguard.app.domain.SocialAppCatalog
+import com.focusguard.app.domain.GroupIcon
 import com.focusguard.app.domain.TargetApp
 import com.focusguard.app.service.FocusAccessibilityService
-import com.focusguard.app.ui.FocusTheme.dp
+import com.focusguard.app.ui.design.Palette
+import com.focusguard.app.ui.design.Space
+import com.focusguard.app.ui.design.Theme
+import com.focusguard.app.ui.design.TypeScale
+import com.focusguard.app.ui.design.dp
+import com.focusguard.app.ui.presenter.DashboardPresenter
+import com.focusguard.app.ui.design.hapticLight
 
 /**
- * Lean main configuration screen for FocusGuard (< 250 lines).
- * Follows the flat, dark-only design system and coordinates
- * modular cards, bottom sheets, and anti-bypass lock enforcement.
+ * Three-tab application shell: Hoje, Grupos and Ajustes.
+ *
+ * Owns navigation, configuration mutations, anti-bypass lock enforcement and
+ * the onboarding redirect. All visual hierarchy lives in the screen classes.
  */
 class MainActivity : Activity() {
 
     private lateinit var store: FocusPreferencesStore
     private lateinit var policyEngine: FocusPolicyEngine
+    private lateinit var presenter: DashboardPresenter
 
-    private lateinit var rootScrollView: ScrollView
-    private lateinit var statusPillText: TextView
-    private lateinit var serviceCalloutView: ServiceCalloutView
-    private lateinit var lockBannerText: TextView
-    private lateinit var summaryCardView: SummaryCardView
-    private lateinit var groupsContainer: LinearLayout
-    private lateinit var anchorHabitCardView: AnchorHabitCardView
+    private lateinit var todayScreen: TodayScreen
+    private lateinit var groupsScreen: GroupsScreen
+    private lateinit var settingsScreen: SettingsScreen
+    private lateinit var navBar: LinearLayout
+    private val navItems = ArrayList<NavItem>()
+
+    private var currentTab: Int = TAB_TODAY
+    private var isReady: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = FocusRuntime.getStore(this)
         policyEngine = FocusRuntime.getEngine(this)
+        presenter = DashboardPresenter(store, policyEngine)
+
+        if (!store.isOnboardingCompleted()) {
+            startActivity(Intent(this, OnboardingActivity::class.java))
+            finish()
+            return
+        }
+
+        enableEdgeToEdge()
         setContentView(buildRootView())
+        isReady = true
+        selectTab(TAB_TODAY)
     }
 
     override fun onResume() {
         super.onResume()
+        if (!isReady) return
+        if (!store.isOnboardingCompleted()) {
+            startActivity(Intent(this, OnboardingActivity::class.java))
+            finish()
+            return
+        }
         refreshUi()
     }
 
+    @Suppress("DEPRECATION")
+    private fun enableEdgeToEdge() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+        } else {
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+    }
+
     private fun buildRootView(): View {
-        rootScrollView = ScrollView(this).apply {
-            setBackgroundColor(FocusTheme.COLOR_CANVAS)
-            isFillViewport = true
-        }
-        val content = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val padH = dp(20)
-            setPadding(padH, dp(16), padH, dp(32))
+            setBackgroundColor(Palette.CANVAS)
         }
-        FocusTheme.applySystemWindowInsetsPadding(content, applyTop = true, applyBottom = true)
 
-        // 1. Top Bar: FocusGuard title + Status Pill
-        val topBar = LinearLayout(this).apply {
+        val screens = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        }
+
+        todayScreen = TodayScreen(
+            this,
+            onOpenAccessibilitySettings = { openAccessibilitySettings() },
+            onTestBarrier = { showBarrierPreview() },
+            onViewGroups = { selectTab(TAB_GROUPS) },
+            onCreateGroup = { openCreateGroupSheet() },
+            onEndSession = { endActiveSession() }
+        )
+        groupsScreen = GroupsScreen(
+            this,
+            onNewGroup = { openCreateGroupSheet() },
+            onToggleGroup = { group, enabled -> setGroupEnabled(group, enabled) },
+            onEditGroup = { group -> openGroupConfigSheet(group) },
+            onManageApps = { group -> openAppPickerSheet(group) },
+            onLockedAttempt = { notifyLockedAttempt() }
+        )
+        settingsScreen = SettingsScreen(
+            this,
+            onOpenAccessibilitySettings = { openAccessibilitySettings() },
+            onTestBarrier = { showBarrierPreview() },
+            onChangeAnchorHabit = { openAnchorHabitSheet() },
+            onResetToday = { confirmResetToday() },
+            onResetAll = { confirmResetAll() },
+            onLockedAttempt = { notifyLockedAttempt() }
+        )
+
+        screens.addView(todayScreen)
+        screens.addView(groupsScreen)
+        screens.addView(settingsScreen)
+        root.addView(screens)
+
+        navBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Palette.SURFACE)
+        }
+        val hairline = View(this).apply {
+            setBackgroundColor(Palette.HAIRLINE)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1))
+        }
+        navBar.addView(hairline)
+        val navRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(16)
-            }
+            setPadding(dp(Space.S), dp(Space.XS), dp(Space.S), dp(Space.XS))
         }
-        val titleView = TextView(this).apply {
-            text = getString(R.string.app_name)
-            setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        statusPillText = TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            typeface = Typeface.DEFAULT_BOLD
-            minimumHeight = dp(36)
+        navItems.add(navItem(R.drawable.ic_today, R.string.nav_today, TAB_TODAY))
+        navItems.add(navItem(R.drawable.ic_groups, R.string.nav_groups, TAB_GROUPS))
+        navItems.add(navItem(R.drawable.ic_settings, R.string.nav_settings, TAB_SETTINGS))
+        for (item in navItems) navRow.addView(item.container)
+        navBar.addView(navRow)
+        Theme.applyInsets(navBar, applyTop = false, applyBottom = true, applyLeft = true, applyRight = true)
+        root.addView(navBar)
+
+        return root
+    }
+
+    private inner class NavItem(
+        val container: LinearLayout,
+        val icon: ImageView,
+        val label: TextView
+    )
+
+    private fun navItem(iconRes: Int, labelRes: Int, tabIndex: Int): NavItem {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            setOnClickListener { openAccessibilitySettings() }
-        }
-        topBar.addView(titleView)
-        topBar.addView(statusPillText)
-        content.addView(topBar)
-
-        // 2. Service Callout (Visible only when Accessibility is disabled)
-        serviceCalloutView = ServiceCalloutView(this) { openAccessibilitySettings() }
-        content.addView(serviceCalloutView)
-
-        // 3. Lock Banner (Visible only when anti-bypass lock is active)
-        lockBannerText = TextView(this).apply {
-            setTextColor(FocusTheme.COLOR_DANGER)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            background = FocusTheme.flatBox(FocusTheme.COLOR_DANGER_SUBTLE, cornerDp = 12)
-            val pad = dp(14)
-            setPadding(pad, pad, pad, pad)
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(14)
+            isClickable = true
+            isFocusable = true
+            minimumHeight = dp(56)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { view ->
+                view.hapticLight()
+                selectTab(tabIndex)
             }
         }
-        content.addView(lockBannerText)
-
-        // 4. Daily Summary Card
-        summaryCardView = SummaryCardView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(20)
-            }
+        val icon = ImageView(this).apply {
+            setImageResource(iconRes)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            layoutParams = LinearLayout.LayoutParams(dp(22), dp(22))
         }
-        content.addView(summaryCardView)
-
-        // 5. Groups Section
-        content.addView(sectionHeader(getString(R.string.groups_title)))
-        groupsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(groupsContainer)
-
-        val createGroupBtn = Button(this).apply {
-            text = getString(R.string.create_group_action)
-            isAllCaps = false
-            setTextColor(FocusTheme.COLOR_TEXT_PRIMARY)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            typeface = Typeface.DEFAULT_BOLD
-            minimumHeight = dp(48)
-            background = FocusTheme.outlineRipple(FocusTheme.COLOR_ELEVATED, strokeWidthDp = 1, cornerDp = 12)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(24)
-            }
-            setOnClickListener { openCreateGroupSheet() }
+        val label = Theme.text(
+            this,
+            getString(labelRes),
+            TypeScale.CAPTION_SP,
+            Palette.TEXT_MUTED,
+            Theme.MEDIUM,
+            gravity = Gravity.CENTER
+        ).apply {
+            setPadding(0, dp(3), 0, 0)
         }
-        content.addView(createGroupBtn)
+        container.addView(icon)
+        container.addView(label)
+        return NavItem(container, icon, label)
+    }
 
-        // 6. Preferences Section
-        content.addView(sectionHeader(getString(R.string.preferences_title)))
-        anchorHabitCardView = AnchorHabitCardView(this) { openAnchorHabitSheet() }
-        content.addView(anchorHabitCardView)
-
-        rootScrollView.addView(content)
-        return rootScrollView
+    private fun selectTab(index: Int) {
+        if (!isReady) return
+        currentTab = index
+        todayScreen.visibility = if (index == TAB_TODAY) View.VISIBLE else View.GONE
+        groupsScreen.visibility = if (index == TAB_GROUPS) View.VISIBLE else View.GONE
+        settingsScreen.visibility = if (index == TAB_SETTINGS) View.VISIBLE else View.GONE
+        for ((itemIndex, item) in navItems.withIndex()) {
+            val selected = itemIndex == index
+            item.icon.setColorFilter(
+                if (selected) Palette.ACCENT else Palette.TEXT_MUTED,
+                PorterDuff.Mode.SRC_IN
+            )
+            item.label.setTextColor(if (selected) Palette.ACCENT else Palette.TEXT_MUTED)
+        }
+        refreshUi()
     }
 
     private fun refreshUi() {
-        val savedScrollY = rootScrollView.scrollY
-        val isA11yActive = FocusAccessibilityService.isServiceRunning() || isAccessibilityServiceEnabledInSettings()
+        val serviceActive = FocusAccessibilityService.isServiceRunning() ||
+            isAccessibilityServiceEnabledInSettings()
 
-        if (isA11yActive) {
-            statusPillText.text = "● ${getString(R.string.status_protected)}"
-            statusPillText.setTextColor(FocusTheme.COLOR_ACCENT)
-            statusPillText.background = FocusTheme.flatBox(FocusTheme.COLOR_ACCENT_SUBTLE, cornerDp = 10)
-            serviceCalloutView.visibility = View.GONE
-        } else {
-            statusPillText.text = "○ ${getString(R.string.status_inactive)}"
-            statusPillText.setTextColor(FocusTheme.COLOR_WARN)
-            statusPillText.background = FocusTheme.flatBox(FocusTheme.COLOR_WARN_SUBTLE, cornerDp = 10)
-            serviceCalloutView.visibility = View.VISIBLE
-        }
-
-        val lockStatus = policyEngine.getSettingsLockStatus()
-        lockBannerText.visibility = if (lockStatus.isLocked) View.VISIBLE else View.GONE
-        if (lockStatus.isLocked) lockBannerText.text = "🔒 ${lockStatus.reasonMessage}"
-
-        summaryCardView.bind(policyEngine.getRewardSummary())
-        val config = store.getConfig()
-        anchorHabitCardView.setAnchorHabit(config.selectedAnchorHabit)
-        renderGroups(config, isLocked = lockStatus.isLocked)
-        rootScrollView.post { rootScrollView.scrollTo(0, savedScrollY) }
-    }
-
-    private fun renderGroups(config: FocusConfig, isLocked: Boolean) {
-        groupsContainer.removeAllViews()
-        val today = SystemTimeProvider.currentEpochDay()
-        val nowMs = SystemTimeProvider.elapsedRealtimeMs()
-
-        for (group in config.getEffectiveGroups()) {
-            val groupUsage = store.getUsageState("group_${group.id}", today)
-            val isCooldown = group.sharedQuota && groupUsage.cooldownUntilRealtimeMs > nowMs &&
-                (groupUsage.cooldownUntilRealtimeMs - nowMs) <= group.cooldownSeconds * 1000L
-
-            var totalUsedSec = if (group.sharedQuota) groupUsage.usedDailySeconds else 0L
-            val appsStats = HashMap<String, Pair<Long, Int>>(group.appIds.size)
-            val resolvedApps = ArrayList<TargetApp>(group.appIds.size)
-
-            for (appId in group.appIds) {
-                val app = SocialAppCatalog.findById(appId, config.customApps)
-                    ?: TargetApp(id = appId, displayName = appId, packageNames = setOf(appId), isCustom = true)
-                resolvedApps.add(app)
-                val u = store.getUsageState(appId, today)
-                appsStats[appId] = Pair(u.usedDailySeconds / 60L, u.sessionsStartedToday)
-                totalUsedSec = if (group.sharedQuota) maxOf(totalUsedSec, u.usedDailySeconds) else totalUsedSec + u.usedDailySeconds
+        when (currentTab) {
+            TAB_TODAY -> {
+                val state = presenter.buildTodayState(serviceActive)
+                todayScreen.bind(state, presenter.dayLabels(state.epochDay))
             }
-
-            val card = GroupCardView(
-                this, group, isLocked,
-                onToggleEnabled = { enabled ->
-                    val updated = config.getEffectiveGroups().map { if (it.id == group.id) it.copy(enabled = enabled) else it }
-                    saveGroups(config, updated)
-                },
-                onAdjustLimitsClicked = { openGroupConfigSheet(group, config, isLocked) },
-                onManageAppsClicked = { openAppPickerSheet(group, config) },
-                onLockedActionAttempt = { notifyLockedAttempt() }
-            )
-            card.bindData(totalUsedSec / 60L, group.dailyQuotaMinutes, isCooldown, resolvedApps, appsStats)
-            groupsContainer.addView(card)
+            TAB_GROUPS -> {
+                groupsScreen.bind(presenter.buildTodayState(serviceActive))
+            }
+            TAB_SETTINGS -> {
+                settingsScreen.bind(presenter.buildSettingsState(serviceActive))
+            }
         }
-    }
-
-    private fun sectionHeader(title: String): TextView = TextView(this).apply {
-        text = title.uppercase()
-        setTextColor(FocusTheme.COLOR_TEXT_MUTED)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-        typeface = Typeface.DEFAULT_BOLD
-        setPadding(0, dp(14), 0, dp(8))
     }
 
     private fun openAccessibilitySettings() {
@@ -228,65 +240,180 @@ class MainActivity : Activity() {
         }.recoverCatching {
             startActivity(Intent(Settings.ACTION_SETTINGS))
         }.onFailure {
-            Toast.makeText(this, "Não foi possível abrir as configurações de acessibilidade.", Toast.LENGTH_SHORT).show()
+            toast(getString(R.string.service_test_unavailable))
         }
     }
 
-    private fun openAnchorHabitSheet() {
-        if (policyEngine.getSettingsLockStatus().isLocked) { notifyLockedAttempt(); return }
-        val config = store.getConfig()
-        AnchorHabitSheet(this, config.selectedAnchorHabit) { updateConfig(config.copy(selectedAnchorHabit = it)) }.show()
+    private fun showBarrierPreview() {
+        if (!FocusAccessibilityService.isServiceRunning() || !FocusAccessibilityService.showBarrierPreview()) {
+            toast(getString(R.string.service_test_unavailable))
+        }
     }
 
-    private fun openGroupConfigSheet(group: FocusGroup, config: FocusConfig, isLocked: Boolean) {
-        if (isLocked) { notifyLockedAttempt(); return }
-        GroupConfigSheet(this, group, isNewGroup = false, isLocked = isLocked,
+    private fun endActiveSession() {
+        if (!FocusAccessibilityService.endSessionFromDashboard()) {
+            toast(getString(R.string.today_session_end))
+        }
+        refreshUi()
+    }
+
+    private fun openAnchorHabitSheet() {
+        if (policyEngine.getSettingsLockStatus().isLocked) {
+            notifyLockedAttempt()
+            return
+        }
+        val config = store.getConfig()
+        AnchorHabitSheet(this, config.selectedAnchorHabit) { habit ->
+            updateConfig(config.copy(selectedAnchorHabit = habit))
+        }.show()
+    }
+
+    private fun openGroupConfigSheet(group: FocusGroup) {
+        if (policyEngine.getSettingsLockStatus().isLocked) {
+            notifyLockedAttempt()
+            return
+        }
+        val config = store.getConfig()
+        val locked = policyEngine.getSettingsLockStatus().isLocked
+        GroupConfigSheet(
+            this,
+            group,
+            isNewGroup = false,
+            isLocked = locked,
             onSave = { updated ->
                 val list = config.getEffectiveGroups().toMutableList()
-                val idx = list.indexOfFirst { it.id == updated.id }
-                if (idx >= 0) list[idx] = updated else list.add(updated)
+                val index = list.indexOfFirst { it.id == updated.id }
+                if (index >= 0) list[index] = updated else list.add(updated)
                 saveGroups(config, list)
             },
-            onDelete = { del -> saveGroups(config, config.getEffectiveGroups().filter { it.id != del.id }) }
+            onDelete = { deleted ->
+                saveGroups(config, config.getEffectiveGroups().filter { it.id != deleted.id })
+            }
         ).show()
     }
 
     private fun openCreateGroupSheet() {
-        if (policyEngine.getSettingsLockStatus().isLocked) { notifyLockedAttempt(); return }
+        if (policyEngine.getSettingsLockStatus().isLocked) {
+            notifyLockedAttempt()
+            return
+        }
         val config = store.getConfig()
-        val newGroup = FocusGroup("group_${System.currentTimeMillis()}", "Nova Categoria", "🎯", true, emptySet())
-        GroupConfigSheet(this, newGroup, isNewGroup = true, isLocked = false, onSave = { created ->
-            val list = config.getEffectiveGroups().toMutableList().apply { add(created) }
-            saveGroups(config, list)
-        }).show()
+        val newGroup = FocusGroup(
+            id = "group_${System.currentTimeMillis()}",
+            name = getString(R.string.group_created_name),
+            iconKey = GroupIcon.CUSTOM.key,
+            enabled = true,
+            appIds = emptySet()
+        )
+        GroupConfigSheet(
+            this,
+            newGroup,
+            isNewGroup = true,
+            isLocked = false,
+            onSave = { created ->
+                val list = config.getEffectiveGroups().toMutableList().apply { add(created) }
+                saveGroups(config, list)
+                if (created.appIds.isEmpty()) {
+                    openAppPickerSheet(created)
+                }
+            }
+        ).show()
     }
 
-    private fun openAppPickerSheet(group: FocusGroup, config: FocusConfig) {
-        if (policyEngine.getSettingsLockStatus().isLocked) { notifyLockedAttempt(); return }
+    private fun openAppPickerSheet(group: FocusGroup) {
+        if (policyEngine.getSettingsLockStatus().isLocked) {
+            notifyLockedAttempt()
+            return
+        }
+        val config = store.getConfig()
         AppPickerSheet(this, group, config, onAppsConfirmed = { selectedIds, allCustom ->
-            val list = config.getEffectiveGroups().map { if (it.id == group.id) it.copy(appIds = selectedIds) else it.copy(appIds = it.appIds - selectedIds) }
+            val list = config.getEffectiveGroups().map { other ->
+                if (other.id == group.id) {
+                    other.copy(appIds = selectedIds)
+                } else {
+                    other.copy(appIds = other.appIds - selectedIds)
+                }
+            }
             saveGroups(config, list, allCustom)
         }).show()
     }
 
-    private fun saveGroups(config: FocusConfig, groups: List<FocusGroup>, customApps: List<TargetApp> = config.customApps) {
+    private fun setGroupEnabled(group: FocusGroup, enabled: Boolean) {
+        if (policyEngine.getSettingsLockStatus().isLocked) {
+            notifyLockedAttempt()
+            return
+        }
+        val config = store.getConfig()
+        val list = config.getEffectiveGroups().map {
+            if (it.id == group.id) it.copy(enabled = enabled) else it
+        }
+        saveGroups(config, list)
+    }
+
+    private fun confirmResetToday() {
+        ConfirmSheet(
+            this,
+            getString(R.string.reset_today_title),
+            getString(R.string.reset_today_body),
+            getString(R.string.reset_today_action)
+        ) {
+            store.resetTodayStats()
+            FocusAccessibilityService.notifyConfigUpdated()
+            refreshUi()
+        }.show()
+    }
+
+    private fun confirmResetAll() {
+        ConfirmSheet(
+            this,
+            getString(R.string.reset_all_title),
+            getString(R.string.reset_all_body),
+            getString(R.string.reset_all_action)
+        ) {
+            store.resetAllStats()
+            FocusAccessibilityService.notifyConfigUpdated()
+            refreshUi()
+        }.show()
+    }
+
+    private fun saveGroups(
+        config: FocusConfig,
+        groups: List<FocusGroup>,
+        customApps: List<TargetApp> = config.customApps
+    ) {
         val allEnabled = groups.filter { it.enabled }.flatMap { it.appIds }.toSet()
         updateConfig(config.copy(groups = groups, customApps = customApps, enabledAppIds = allEnabled))
     }
 
-    private fun notifyLockedAttempt() {
-        Toast.makeText(this, policyEngine.getSettingsLockStatus().reasonMessage ?: getString(R.string.lock_banner_title), Toast.LENGTH_SHORT).show()
-    }
-
     private fun updateConfig(newConfig: FocusConfig) {
-        if (policyEngine.getSettingsLockStatus().isLocked) return
+        if (policyEngine.getSettingsLockStatus().isLocked) {
+            notifyLockedAttempt()
+            return
+        }
         store.saveConfig(newConfig)
         FocusAccessibilityService.notifyConfigUpdated()
         refreshUi()
     }
 
+    private fun notifyLockedAttempt() {
+        toast(policyEngine.getSettingsLockStatus().reasonMessage ?: getString(R.string.lock_banner_title))
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
     private fun isAccessibilityServiceEnabledInSettings(): Boolean {
-        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        val enabled = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
         return enabled.contains(packageName)
+    }
+
+    companion object {
+        private const val TAB_TODAY = 0
+        private const val TAB_GROUPS = 1
+        private const val TAB_SETTINGS = 2
     }
 }

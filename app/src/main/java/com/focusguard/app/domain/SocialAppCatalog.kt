@@ -97,19 +97,6 @@ object SocialAppCatalog {
     }
 
     /**
-     * Converte os IDs ou pacotes habilitados na lista completa de pacotes Android para filtro do sistema.
-     */
-    fun resolveAndroidPackages(enabledAppIds: Set<String>): Set<String> {
-        val result = HashSet<String>()
-        for (app in SUPPORTED_APPS) {
-            if (app.id in enabledAppIds) {
-                result.addAll(app.packageNames)
-            }
-        }
-        return result
-    }
-
-    /**
      * Converte os grupos ativos de uma [FocusConfig] na união de todos os pacotes Android
      * que devem ser escutados pelo AccessibilityService do sistema operacional.
      */

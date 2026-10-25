@@ -2,9 +2,14 @@
 <resources>
     <style name="Theme.FocusGuard" parent="@android:style/Theme.DeviceDefault.NoActionBar">
         <item name="android:windowBackground">@color/bg_canvas</item>
-        <item name="android:statusBarColor">@color/bg_canvas</item>
-        <item name="android:navigationBarColor">@color/bg_canvas</item>
         <item name="android:colorBackground">@color/bg_canvas</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:windowActionModeOverlay">true</item>
     </style>
 
     <style name="Theme.FocusGuard.BottomSheet" parent="@android:style/Theme.DeviceDefault.Dialog">
@@ -16,7 +21,9 @@
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowAnimationStyle">@style/Animation.FocusGuard.BottomSheet</item>
         <item name="android:backgroundDimEnabled">true</item>
-        <item name="android:backgroundDimAmount">0.6</item>
+        <item name="android:backgroundDimAmount">0.68</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
     <style name="Animation.FocusGuard.BottomSheet" parent="@android:style/Animation.Dialog">
