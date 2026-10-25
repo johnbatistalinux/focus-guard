@@ -237,6 +237,22 @@ class FocusPolicyEngine(
             ?: pausedSessionsByAppId[targetApp.id]
 
         if (existingSession != null && existingSession.remainingSessionSeconds > 0L) {
+            if (!existingSession.isPausedInBackground && currentState === existingSession) {
+                val elapsedInSession =
+                    (existingSession.initialSessionSeconds - existingSession.remainingSessionSeconds).coerceAtLeast(0L)
+                val liveUsedDaily = existingSession.baseUsedDailySeconds + elapsedInSession
+                val liveRemainingDaily = (activeGroup.dailyQuotaSeconds - liveUsedDaily).coerceAtLeast(0L)
+                val effectiveRemaining = minOf(existingSession.remainingSessionSeconds, liveRemainingDaily)
+                return InterventionAction.ShowFloatingTimer(
+                    appId = targetApp.id,
+                    displayName = targetApp.displayName,
+                    remainingSessionSeconds = effectiveRemaining,
+                    remainingDailyQuotaSeconds = liveRemainingDaily,
+                    groupName = gName,
+                    totalSessionSeconds = existingSession.initialSessionSeconds
+                )
+            }
+
             val effectiveRemaining = minOf(existingSession.remainingSessionSeconds, remainingDailySeconds)
             val resumed = existingSession.copy(
                 initialSessionSeconds = effectiveRemaining,

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.view.Gravity
+import android.view.WindowInsets
 import android.view.WindowManager
 import com.focusguard.app.R
 import com.focusguard.app.domain.InterventionAction
@@ -105,6 +106,27 @@ class OverlayController(
     }
 
     fun isShowingBarrier(): Boolean = barrierView != null
+
+    /**
+     * Checks whether the soft keyboard (IME) is currently visible according to [WindowManager]
+     * and [WindowInsets], independent of the accessibility window list.
+     */
+    fun isImeVisible(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metricsIme = runCatching {
+                windowManager.currentWindowMetrics.windowInsets.isVisible(WindowInsets.Type.ime())
+            }.getOrDefault(false)
+            if (metricsIme) return true
+            val viewIme = runCatching {
+                pillView?.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+            }.getOrDefault(false)
+            if (viewIme) return true
+            return false
+        }
+        @Suppress("DEPRECATION")
+        val bottomInset = pillView?.rootWindowInsets?.systemWindowInsetBottom ?: 0
+        return bottomInset > context.dp(100)
+    }
 
     private fun handleExitToHome() {
         if (previewMode) {
@@ -210,8 +232,7 @@ class OverlayController(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or if (isPillAlignedStart) Gravity.START else Gravity.END

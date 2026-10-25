@@ -84,4 +84,46 @@ class WindowExitArbiterTest {
             WindowExitArbiter.evaluate(instagramPackages, WindowExitArbiter.ForegroundSnapshot.UNKNOWN)
         )
     }
+
+    @Test
+    fun `teclado aberto com raiz do Instagram ilegivel mantem a sessao visivel`() {
+        val snapshot = WindowExitArbiter.ForegroundSnapshot(
+            applicationPackages = emptyList(),
+            applicationWindowCount = 1,
+            isImeVisible = true
+        )
+
+        assertEquals(
+            WindowExitArbiter.Verdict.SESSION_VISIBLE,
+            WindowExitArbiter.evaluate(instagramPackages, snapshot)
+        )
+    }
+
+    @Test
+    fun `teclado aberto sem janelas de aplicacao listadas mantem a sessao visivel`() {
+        val snapshot = WindowExitArbiter.ForegroundSnapshot(
+            applicationPackages = emptyList(),
+            applicationWindowCount = 0,
+            isImeVisible = true
+        )
+
+        assertEquals(
+            WindowExitArbiter.Verdict.SESSION_VISIBLE,
+            WindowExitArbiter.evaluate(instagramPackages, snapshot)
+        )
+    }
+
+    @Test
+    fun `teclado aberto com apenas janela auxiliar da OEM atribuida mantem a sessao visivel`() {
+        val snapshot = WindowExitArbiter.ForegroundSnapshot(
+            applicationPackages = listOf("com.samsung.android.honeyboard"),
+            applicationWindowCount = 1,
+            isImeVisible = true
+        )
+
+        assertEquals(
+            WindowExitArbiter.Verdict.SESSION_VISIBLE,
+            WindowExitArbiter.evaluate(instagramPackages, snapshot)
+        )
+    }
 }

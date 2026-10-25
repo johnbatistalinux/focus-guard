@@ -911,6 +911,34 @@ class FocusPolicyEngineTest {
         assertEquals("custom_vision", (action as InterventionAction.ShowMindfulPause).appId)
     }
 
+    @Test
+    fun `evento do mesmo app durante sessao ativa em primeiro plano preserva segundos gastos e duracao inicial`() {
+        // Entra no Instagram e completa a pausa consciente (10s)
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        val started = engine.onConfirmStartSession(isQuickMicroSession = false) as InterventionAction.ShowFloatingTimer
+        assertEquals(300L, started.remainingSessionSeconds)
+        assertEquals(300L, started.totalSessionSeconds)
+
+        // Avanca 10s (antes do flush de 15s no store)
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        // Subjanela/composer do proprio Instagram dispara onWindowPackageChanged
+        val midAction = engine.onWindowPackageChanged(
+            "com.instagram.android",
+            "com.instagram.mainactivity.InstagramMainActivity"
+        ) as InterventionAction.ShowFloatingTimer
+        assertEquals(290L, midAction.remainingSessionSeconds)
+        assertEquals(300L, midAction.totalSessionSeconds)
+        assertEquals(1790L, midAction.remainingDailyQuotaSeconds)
+    }
+
     private class FakeTimeProvider(
         initialRealtimeMs: Long,
         initialEpochDay: Long

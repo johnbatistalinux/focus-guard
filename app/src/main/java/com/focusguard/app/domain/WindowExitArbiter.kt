@@ -74,13 +74,20 @@ object WindowExitArbiter {
             return Verdict.SESSION_VISIBLE
         }
 
-        // 2. Every application window on screen was attributed and none belongs to the monitored
+        // 2. While the virtual keyboard (IME) is on screen during an active session, the user is
+        // typing inside the session app (whose root node is often unreadable or occluded by the
+        // keyboard and OEM suggestion bars). Never pause or hide the session timer while typing.
+        if (snapshot.isImeVisible) {
+            return Verdict.SESSION_VISIBLE
+        }
+
+        // 3. Every application window on screen was attributed and none belongs to the monitored
         // app, so the foreground really changed.
         if (snapshot.hasFullyAttributedApplicationWindows) {
             return Verdict.SESSION_HIDDEN
         }
 
-        // 3. No application window at all, or at least one window without a readable root: the
+        // 4. No application window at all, or at least one window without a readable root: the
         // picture is incomplete, so guessing would risk tearing down a live session.
         return Verdict.UNKNOWN
     }

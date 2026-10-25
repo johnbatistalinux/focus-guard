@@ -60,6 +60,7 @@ class FocusAccessibilityService : AccessibilityService() {
     private var lastWindowSnapshotMs = 0L
     private var cachedIsImeVisibleOnScreen = false
     private val cachedNonAppWindowIds = HashSet<Int>(8)
+    private val windowPackageById = HashMap<Int, String>(32)
 
     private var currentForegroundPackage: String? = null
     private var lastMonitoredPackage: String? = null
@@ -129,6 +130,10 @@ class FocusAccessibilityService : AccessibilityService() {
             return
         }
 
+        if (event.windowId >= 0) {
+            rememberWindowPackage(event.windowId, pkgName, fromDirectRoot = false)
+        }
+
         // Filtro barato de janelas transitórias (teclado, sistema, overlays): apenas uma otimização
         // para evitar trabalho desnecessário, não é mais o que sustenta a decisão de saída.
         if (isTransientPackageOrWindow(pkgName, clsName, event)) {
@@ -159,8 +164,10 @@ class FocusAccessibilityService : AccessibilityService() {
             return
         }
 
-        // SAÍDA EXPLÍCITA: Launcher e o próprio dashboard do FocusGuard são inequívocos.
-        if (isHomeLauncherPackage(pkgName) || pkgName == packageName) {
+        // SAÍDA EXPLÍCITA: Launcher (quando o teclado não está ativo) e o próprio dashboard do FocusGuard.
+        if (pkgName == packageName ||
+            (isHomeLauncherPackage(pkgName) && !cachedIsImeVisibleOnScreen && !overlayController.isImeVisible())
+        ) {
             currentForegroundPackage = pkgName
             exitTracker.reset()
             val action = policyEngine.onForegroundLost()
@@ -459,20 +466,55 @@ class FocusAccessibilityService : AccessibilityService() {
      * janelas é a única fonte de verdade, nunca o pacote que emitiu o evento.
      */
     private fun captureForegroundSnapshot(): WindowExitArbiter.ForegroundSnapshot {
+        val imeFromOverlay = overlayController.isImeVisible()
         val interactiveWindows = runCatching { windows }.getOrNull()
-            ?: return WindowExitArbiter.ForegroundSnapshot.UNKNOWN
+            ?: return WindowExitArbiter.ForegroundSnapshot(
+                applicationPackages = emptyList(),
+                applicationWindowCount = 0,
+                isImeVisible = imeFromOverlay || cachedIsImeVisibleOnScreen
+            )
 
-        var isImeVisible = false
+        var isImeVisible = imeFromOverlay
         var applicationWindowCount = 0
         val applicationPackages = ArrayList<String>(2)
+        val activeRootPkg = runCatching { rootInActiveWindow?.packageName?.toString() }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+        if (activeRootPkg != null && isSystemInputMethodPackage(activeRootPkg)) {
+            isImeVisible = true
+        }
+
         for (window in interactiveWindows) {
+            val winId = window.id
             when (window.type) {
                 AccessibilityWindowInfo.TYPE_INPUT_METHOD -> isImeVisible = true
                 AccessibilityWindowInfo.TYPE_APPLICATION -> {
-                    applicationWindowCount++
-                    val windowPackage = runCatching { window.root?.packageName?.toString() }.getOrNull()
-                    if (!windowPackage.isNullOrBlank()) {
-                        applicationPackages.add(windowPackage)
+                    val directPkg = runCatching { window.root?.packageName?.toString() }
+                        .getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                    if (directPkg != null && winId >= 0) {
+                        rememberWindowPackage(winId, directPkg, fromDirectRoot = true)
+                    }
+                    val resolvedPkg = directPkg
+                        ?: (if (winId >= 0) windowPackageById[winId] else null)
+                        ?: (if (window.isActive) activeRootPkg else null)
+
+                    if (resolvedPkg != null) {
+                        if (isSystemInputMethodPackage(resolvedPkg)) {
+                            isImeVisible = true
+                        } else if (!isAuxiliaryApplicationPackage(resolvedPkg)) {
+                            applicationWindowCount++
+                            applicationPackages.add(resolvedPkg)
+                        }
+                    } else {
+                        applicationWindowCount++
+                    }
+                }
+                else -> {
+                    val otherPkg = (if (winId >= 0) windowPackageById[winId] else null)
+                        ?: runCatching { window.root?.packageName?.toString() }.getOrNull()
+                    if (!otherPkg.isNullOrBlank() && isSystemInputMethodPackage(otherPkg)) {
+                        isImeVisible = true
                     }
                 }
             }
@@ -483,6 +525,29 @@ class FocusAccessibilityService : AccessibilityService() {
             applicationWindowCount = applicationWindowCount,
             isImeVisible = isImeVisible
         )
+    }
+
+    private fun rememberWindowPackage(windowId: Int, pkgName: String, fromDirectRoot: Boolean) {
+        if (windowId < 0 || pkgName.isBlank()) return
+        if (!fromDirectRoot) {
+            val existing = windowPackageById[windowId]
+            if (existing != null && isMonitoredPackage(existing) && !isMonitoredPackage(pkgName)) {
+                return
+            }
+        }
+        if (windowPackageById.size >= 64 && windowId !in windowPackageById) {
+            windowPackageById.clear()
+        }
+        windowPackageById[windowId] = pkgName
+    }
+
+    private fun isAuxiliaryApplicationPackage(pkgName: String): Boolean {
+        if (isMonitoredPackage(pkgName)) return false
+        if (pkgName == packageName) return false
+        if (isHomeLauncherPackage(pkgName)) return false
+        return isSystemInputMethodPackage(pkgName) ||
+            policyEngine.isTransientSystemPackage(pkgName) ||
+            !isLaunchableUserApp(pkgName)
     }
 
     private fun isTransientPackageOrWindow(pkgName: String, clsName: String?, event: AccessibilityEvent): Boolean {
@@ -496,17 +561,18 @@ class FocusAccessibilityService : AccessibilityService() {
             return false
         }
 
-        // 3. Se for o Launcher da tela inicial (One UI Home, Pixel Launcher, etc.), é saída real para o Home
-        if (isHomeLauncherPackage(pkgName)) {
-            return false
-        }
-
-        // 4. Verificações em memória (zero IPC): IMEs conhecidos, classes transitórias e pacotes de sistema
+        // 3. Verificações em memória (zero IPC): IMEs conhecidos, classes transitórias e pacotes de sistema
         if (isSystemInputMethodPackage(pkgName) ||
             policyEngine.isTransientSystemPackage(pkgName) ||
             policyEngine.isTransientWindowClassName(clsName)
         ) {
             return true
+        }
+
+        // 4. Se for o Launcher da tela inicial (One UI Home, Pixel Launcher, etc.), não é transitório
+        // a menos que o evento venha de uma janela não-aplicação (ex: barra de gestos/taskbar) ou durante IME ativo.
+        if (isHomeLauncherPackage(pkgName)) {
+            return isTransientWindowEvent(event)
         }
 
         // 5. Se durante uma sessão ativa o pacote NÃO for um aplicativo inicializável pelo usuário
