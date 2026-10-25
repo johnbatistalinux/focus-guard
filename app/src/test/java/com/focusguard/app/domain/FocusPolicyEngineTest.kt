@@ -131,6 +131,30 @@ class FocusPolicyEngineTest {
     }
 
     @Test
+    fun `hasForegroundSession reflete sessao ativa pausada e encerrada`() {
+        assertFalse(engine.hasForegroundSession())
+
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+        assertTrue(engine.hasForegroundSession())
+
+        // Saída real para um app não monitorado pausa a sessão em segundo plano.
+        engine.onWindowPackageChanged("com.whatsapp")
+        assertFalse(engine.hasForegroundSession())
+
+        // Voltar ao Instagram retoma a sessão em primeiro plano.
+        engine.onWindowPackageChanged("com.instagram.android")
+        assertTrue(engine.hasForegroundSession())
+
+        engine.onUserEndedSessionEarly()
+        assertFalse(engine.hasForegroundSession())
+    }
+
+    @Test
     fun `onScreenTurnedOff pausa a sessao imediatamente impedindo gasto de cota com a tela apagada`() {
         engine.onWindowPackageChanged("com.instagram.android")
         repeat(10) {

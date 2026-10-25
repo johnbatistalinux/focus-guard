@@ -863,6 +863,17 @@ class FocusPolicyEngine(
     }
 
     /**
+     * Indica se existe uma sessão ativa contando em primeiro plano.
+     *
+     * Usado pelo serviço para confirmar trocas de janela antes de pausar a sessão e remover a
+     * pílula flutuante, evitando falsos positivos de teclados e painéis auxiliares da OEM.
+     */
+    fun hasForegroundSession(): Boolean {
+        val state = currentState as? EngineState.InActiveSession ?: return false
+        return !state.isPausedInBackground
+    }
+
+    /**
      * Indica se o ticker de 1 Hz precisa continuar rodando.
      */
     fun shouldRunTicker(): Boolean = when (val state = currentState) {

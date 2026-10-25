@@ -2,6 +2,7 @@ package com.focusguard.app.service
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.os.Build
 import android.view.Gravity
 import android.view.WindowManager
 import com.focusguard.app.R
@@ -176,7 +177,14 @@ class OverlayController(
     }
 
     private fun showOrUpdateFloatingPill(remainingSeconds: Long, totalSeconds: Long) {
-        val view = pillView ?: createAndAttachFloatingPill() ?: return
+        val attachedView = pillView?.takeIf { it.isAttachedToWindow }
+        if (pillView != null && attachedView == null) {
+            // WindowManager dropped the overlay (e.g. IME inset reconfiguration by the OEM):
+            // forget the stale instance so the next tick re-attaches a fresh one.
+            pillView = null
+            pillParams = null
+        }
+        val view = attachedView ?: createAndAttachFloatingPill() ?: return
         view.bind(remainingSeconds, totalSeconds)
     }
 
@@ -193,6 +201,12 @@ class OverlayController(
             gravity = Gravity.TOP or if (isPillAlignedStart) Gravity.START else Gravity.END
             x = context.dp(16)
             y = context.dp(48)
+            // The pill must never be resized or pushed around when the soft keyboard opens.
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                setFitInsetsTypes(0)
+                setFitInsetsSides(0)
+            }
         }
 
         val view = FloatingPillView(

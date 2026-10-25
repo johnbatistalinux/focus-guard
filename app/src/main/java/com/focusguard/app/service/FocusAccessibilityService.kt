@@ -21,6 +21,7 @@ import com.focusguard.app.data.FocusRuntime
 import com.focusguard.app.domain.FocusPolicyEngine
 import com.focusguard.app.domain.InterventionAction
 import com.focusguard.app.domain.SocialAppCatalog
+import com.focusguard.app.domain.WindowExitArbiter
 import java.lang.ref.WeakReference
 
 /**
@@ -67,10 +68,17 @@ class FocusAccessibilityService : AccessibilityService() {
         overlayController.dismissAll()
     }
 
+    private var pendingExitPackage: String? = null
+    private var pendingExitClassName: String? = null
+    private var pendingExitRetries = 0
+
+    private val pendingExitCheckRunnable = Runnable { confirmPendingExit() }
+
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
+                    clearPendingExit()
                     val offAction = policyEngine.onScreenTurnedOff()
                     applyInterventionAction(offAction)
                 }
@@ -139,12 +147,21 @@ class FocusAccessibilityService : AccessibilityService() {
             }
         }
 
-        if (!policyEngine.isTransientSystemPackage(pkgName) && !policyEngine.isTransientWindowClassName(clsName)) {
-            currentForegroundPackage = pkgName
+        val isMonitoredEvent = isMonitoredPackage(pkgName)
+        if (isMonitoredEvent) {
+            lastMonitoredPackage = pkgName
         }
 
-        if (isMonitoredPackage(pkgName)) {
-            lastMonitoredPackage = pkgName
+        // Em sessão ativa, um único evento de pacote não monitorado nunca pausa o cronômetro
+        // diretamente: teclados e painéis auxiliares da OEM abrem janelas com pacotes próprios.
+        // A saída real só é aceita após confirmar as janelas de aplicação interativas.
+        if (!isMonitoredEvent && policyEngine.hasForegroundSession()) {
+            scheduleExitConfirmation(pkgName, clsName)
+            return
+        }
+
+        if (!policyEngine.isTransientSystemPackage(pkgName) && !policyEngine.isTransientWindowClassName(clsName)) {
+            currentForegroundPackage = pkgName
         }
 
         val action = policyEngine.onWindowPackageChanged(pkgName, clsName)
@@ -153,6 +170,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         policyEngine.onServiceStopped()
+        clearPendingExit()
         mainHandler.removeCallbacks(delayedDismissRunnable)
         ticker.stop()
         overlayController.dismissAll()
@@ -164,6 +182,7 @@ class FocusAccessibilityService : AccessibilityService() {
         }
         policyEngine.onServiceStopped()
         unregisterScreenStateReceiver()
+        clearPendingExit()
         mainHandler.removeCallbacks(delayedDismissRunnable)
         ticker.stop()
         overlayController.dismissAll()
@@ -173,6 +192,7 @@ class FocusAccessibilityService : AccessibilityService() {
     private fun handleUserExitToHome() {
         suppressCurrentMonitoredPackageOnExit()
         currentForegroundPackage = null
+        clearPendingExit()
         policyEngine.onUserAborted()
         performGlobalAction(GLOBAL_ACTION_HOME)
         ticker.stop()
@@ -212,6 +232,7 @@ class FocusAccessibilityService : AccessibilityService() {
     private fun handleUserEndSessionEarly() {
         suppressCurrentMonitoredPackageOnExit()
         currentForegroundPackage = null
+        clearPendingExit()
         val action = policyEngine.onUserEndedSessionEarly()
         applyInterventionAction(action)
         performGlobalAction(GLOBAL_ACTION_HOME)
@@ -371,6 +392,123 @@ class FocusAccessibilityService : AccessibilityService() {
         return SocialAppCatalog.findByPackageName(pkgName, config.customApps) != null
     }
 
+    /**
+     * Agenda a confirmação de uma possível saída do app monitorado.
+     *
+     * Ir para o Launcher é uma saída explícita e pode ser aplicada na hora; qualquer outro pacote
+     * aguarda [EXIT_CONFIRM_DELAY_MS] para que a lista de janelas interativas reflita o estado real
+     * (o teclado virtual leva alguns milissegundos para aparecer na lista).
+     */
+    private fun scheduleExitConfirmation(pkgName: String, clsName: String?) {
+        pendingExitPackage = pkgName
+        pendingExitClassName = clsName
+        pendingExitRetries = 0
+        mainHandler.removeCallbacks(pendingExitCheckRunnable)
+        if (isHomeLauncherPackage(pkgName)) {
+            confirmPendingExit()
+        } else {
+            mainHandler.postDelayed(pendingExitCheckRunnable, EXIT_CONFIRM_DELAY_MS)
+        }
+    }
+
+    /**
+     * Decide se a janela que emitiu o evento realmente substituiu o app monitorado.
+     *
+     * Só pausa a sessão (e remove a pílula flutuante) quando o app monitorado não possui mais
+     * nenhuma janela de aplicação visível. Teclados, barras de sugestão e painéis auxiliares da OEM
+     * mantêm a janela do app viva por baixo, portanto o cronômetro continua contando.
+     */
+    private fun confirmPendingExit() {
+        val pkgName = pendingExitPackage ?: return
+        if (!policyEngine.hasForegroundSession()) {
+            // A sessão já foi pausada/encerrada por outro caminho (tela desligada, dashboard, Home).
+            clearPendingExit()
+            return
+        }
+        val clsName = pendingExitClassName
+        val monitoredPackages = monitoredSessionPackages()
+
+        if (monitoredPackages.isNotEmpty()) {
+            val isRealExit = WindowExitArbiter.isRealExit(
+                eventPackage = pkgName,
+                monitoredPackages = monitoredPackages,
+                isHomeLauncherEvent = isHomeLauncherPackage(pkgName),
+                snapshot = captureWindowSnapshot()
+            )
+            if (!isRealExit) {
+                // Reavalia uma única vez: durante a animação de troca de app a janela anterior
+                // pode continuar listada por alguns milissegundos.
+                if (pendingExitRetries < EXIT_CONFIRM_MAX_RETRIES) {
+                    pendingExitRetries++
+                    mainHandler.removeCallbacks(pendingExitCheckRunnable)
+                    mainHandler.postDelayed(pendingExitCheckRunnable, EXIT_CONFIRM_RETRY_MS)
+                    return
+                }
+                clearPendingExit()
+                return
+            }
+        }
+
+        clearPendingExit()
+        if (!policyEngine.isTransientSystemPackage(pkgName) && !policyEngine.isTransientWindowClassName(clsName)) {
+            currentForegroundPackage = pkgName
+        }
+        val action = policyEngine.onWindowPackageChanged(pkgName, clsName)
+        applyInterventionAction(action)
+    }
+
+    private fun clearPendingExit() {
+        pendingExitPackage = null
+        pendingExitClassName = null
+        pendingExitRetries = 0
+        mainHandler.removeCallbacks(pendingExitCheckRunnable)
+    }
+
+    /**
+     * Pacotes do app que detém a sessão ativa, incluindo aliases (ex: Instagram e Instagram Lite).
+     */
+    private fun monitoredSessionPackages(): Set<String> {
+        val pkg = lastMonitoredPackage ?: return emptySet()
+        if (!::store.isInitialized) return setOf(pkg)
+        val aliases = SocialAppCatalog.findByPackageName(pkg, store.getConfig().customApps)?.packageNames
+        return if (aliases.isNullOrEmpty()) setOf(pkg) else aliases
+    }
+
+    /**
+     * Fotografa as janelas interativas para descobrir quem realmente está em primeiro plano.
+     * Executado apenas em candidatos a saída (abertura de teclado, troca de app), nunca no tick.
+     */
+    private fun captureWindowSnapshot(): WindowExitArbiter.WindowSnapshot {
+        val interactiveWindows = runCatching { windows }.getOrNull()
+            ?: return WindowExitArbiter.WindowSnapshot(
+                visibleApplicationPackages = emptyList(),
+                visibleApplicationWindowCount = 0,
+                isImeVisible = cachedIsImeVisibleOnScreen
+            )
+
+        var isImeVisible = false
+        var applicationWindowCount = 0
+        val applicationPackages = ArrayList<String>(2)
+        for (window in interactiveWindows) {
+            when (window.type) {
+                AccessibilityWindowInfo.TYPE_INPUT_METHOD -> isImeVisible = true
+                AccessibilityWindowInfo.TYPE_APPLICATION -> {
+                    applicationWindowCount++
+                    val windowPackage = runCatching { window.root?.packageName?.toString() }.getOrNull()
+                    if (!windowPackage.isNullOrBlank()) {
+                        applicationPackages.add(windowPackage)
+                    }
+                }
+            }
+        }
+        cachedIsImeVisibleOnScreen = isImeVisible
+        return WindowExitArbiter.WindowSnapshot(
+            visibleApplicationPackages = applicationPackages,
+            visibleApplicationWindowCount = applicationWindowCount,
+            isImeVisible = isImeVisible
+        )
+    }
+
     private fun isTransientPackageOrWindow(pkgName: String, clsName: String?, event: AccessibilityEvent): Boolean {
         // 1. Caminho ultra-rápido em O(1): Se for uma das redes sociais/apps monitorados, NUNCA é transitório
         if (isMonitoredPackage(pkgName)) {
@@ -498,6 +636,9 @@ class FocusAccessibilityService : AccessibilityService() {
         private const val IME_CACHE_TTL_MS = 30_000L
         private const val HOME_EXIT_BOUNCE_GUARD_MS = 800L
         private const val CELEBRATION_DISMISS_DELAY_MS = 180L
+        private const val EXIT_CONFIRM_DELAY_MS = 300L
+        private const val EXIT_CONFIRM_RETRY_MS = 400L
+        private const val EXIT_CONFIRM_MAX_RETRIES = 1
 
         @Volatile
         private var activeInstanceRef: WeakReference<FocusAccessibilityService>? = null
