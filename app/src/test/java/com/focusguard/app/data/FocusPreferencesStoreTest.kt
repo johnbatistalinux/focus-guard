@@ -4,6 +4,7 @@ import com.focusguard.app.domain.AppUsageState
 import com.focusguard.app.domain.FocusConfig
 import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusRewardState
+import com.focusguard.app.domain.SessionGuard
 import com.focusguard.app.domain.TargetApp
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -92,6 +93,50 @@ class FocusPreferencesStoreTest {
         assertEquals(0L, nextDayState.usedDailySeconds)
         assertEquals(0, nextDayState.sessionsStartedToday)
         assertEquals(500_000L, nextDayState.cooldownUntilRealtimeMs)
+    }
+
+    @Test
+    fun `retrocesso de relogio nao zera cota nem sessoes do dia mais avancado`() {
+        val day10 = 20_010L
+        val day9 = 20_009L
+
+        store.saveUsageState(
+            AppUsageState(
+                appId = "instagram",
+                epochDay = day10,
+                usedDailySeconds = 1200L,
+                cooldownUntilRealtimeMs = 500_000L,
+                sessionsStartedToday = 3
+            )
+        )
+
+        val rolledBack = store.getUsageState("instagram", day9)
+        assertEquals(day10, rolledBack.epochDay)
+        assertEquals(1200L, rolledBack.usedDailySeconds)
+        assertEquals(3, rolledBack.sessionsStartedToday)
+        assertEquals(500_000L, rolledBack.cooldownUntilRealtimeMs)
+
+        // Mesmo com o cache em memória vazio, o backend mantém o dia mais avançado já registrado
+        val reloadedStore = FocusPreferencesStore(backend)
+        val stillPinned = reloadedStore.getUsageState("instagram", day9)
+        assertEquals(day10, stillPinned.epochDay)
+        assertEquals(1200L, stillPinned.usedDailySeconds)
+        assertEquals(3, stillPinned.sessionsStartedToday)
+    }
+
+    @Test
+    fun `persiste e limpa guardas de sessao interrompida`() {
+        val guards = listOf(
+            SessionGuard(appId = "instagram", groupId = "grp_social", cooldownSeconds = 600L),
+            SessionGuard(appId = "custom_game", groupId = "grp_games", cooldownSeconds = 300L)
+        )
+        store.saveSessionGuards(guards)
+        assertEquals(guards, store.getSessionGuards())
+        assertEquals(guards, FocusPreferencesStore(backend).getSessionGuards())
+
+        store.saveSessionGuards(emptyList())
+        assertTrue(store.getSessionGuards().isEmpty())
+        assertTrue(FocusPreferencesStore(backend).getSessionGuards().isEmpty())
     }
 
     @Test

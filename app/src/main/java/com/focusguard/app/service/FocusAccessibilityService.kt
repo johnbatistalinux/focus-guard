@@ -152,6 +152,7 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        policyEngine.onServiceStopped()
         mainHandler.removeCallbacks(delayedDismissRunnable)
         ticker.stop()
         overlayController.dismissAll()
@@ -161,6 +162,7 @@ class FocusAccessibilityService : AccessibilityService() {
         if (activeInstanceRef?.get() === this) {
             activeInstanceRef = null
         }
+        policyEngine.onServiceStopped()
         unregisterScreenStateReceiver()
         mainHandler.removeCallbacks(delayedDismissRunnable)
         ticker.stop()

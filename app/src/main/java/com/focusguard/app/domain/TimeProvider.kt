@@ -17,6 +17,17 @@ interface TimeProvider {
 }
 
 /**
+ * Guarda persistente de uma sessão ativa no momento em que o processo/serviço morreu.
+ * Permite aplicar o cooldown devido na próxima inicialização, evitando burlar a barreira
+ * ao encerrar o AccessibilityService à força.
+ */
+data class SessionGuard(
+    val appId: String,
+    val groupId: String,
+    val cooldownSeconds: Long
+)
+
+/**
  * Contrato de leitura/escrita de configurações, estado de uso e reforço positivo.
  */
 interface FocusPolicyStore {
@@ -26,4 +37,6 @@ interface FocusPolicyStore {
     fun saveUsageState(state: AppUsageState)
     fun getRewardState(currentEpochDay: Long): FocusRewardState
     fun saveRewardState(state: FocusRewardState)
+    fun getSessionGuards(): List<SessionGuard>
+    fun saveSessionGuards(guards: List<SessionGuard>)
 }

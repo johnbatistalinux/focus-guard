@@ -777,6 +777,84 @@ class FocusPolicyEngineTest {
         assertEquals(150L, finalUsage.usedDailySeconds)
     }
 
+    @Test
+    fun `encerrar o servico finaliza sessao ativa e aplica cooldown ao reabrir`() {
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+        repeat(90) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        engine.onServiceStopped()
+        assertFalse(engine.shouldRunTicker())
+        assertTrue(fakeStore.getSessionGuards().isEmpty())
+        assertEquals(90L, fakeStore.getUsageState("instagram", fakeTime.currentEpochDay()).usedDailySeconds)
+
+        val reopened = FocusPolicyEngine(store = fakeStore, timeProvider = fakeTime)
+            .onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowHardBlock
+        assertEquals(BlockReason.COOLDOWN_ACTIVE, reopened.reason)
+        assertEquals(600L, reopened.remainingBlockSeconds)
+    }
+
+    @Test
+    fun `recupera sessao interrompida por morte do processo aplicando cooldown e limpando guardas`() {
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+        repeat(30) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        // O processo morre sem onServiceStopped: a guarda persistida continua no storage
+        assertTrue(fakeStore.getSessionGuards().any { it.appId == "instagram" })
+
+        val recovered = FocusPolicyEngine(store = fakeStore, timeProvider = fakeTime)
+        assertTrue(fakeStore.getSessionGuards().isEmpty())
+
+        val blocked = recovered.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowHardBlock
+        assertEquals(BlockReason.COOLDOWN_ACTIVE, blocked.reason)
+        assertEquals(600L, blocked.remainingBlockSeconds)
+    }
+
+    @Test
+    fun `app customizado com pacote que parece transiente e interceptado normalmente`() {
+        val customApp = TargetApp(
+            id = "custom_vision",
+            displayName = "Vision Board",
+            packageNames = setOf("com.example.visionboard"),
+            isCustom = true
+        )
+        val customGroup = FocusGroup(
+            id = "group_custom",
+            name = "Custom",
+            enabled = true,
+            appIds = setOf("custom_vision"),
+            mindfulPauseSeconds = 5,
+            sessionDurationMinutes = 5,
+            dailyQuotaMinutes = 30,
+            sharedQuota = false
+        )
+        fakeStore.saveConfig(
+            FocusConfig(
+                groups = listOf(customGroup),
+                customApps = listOf(customApp)
+            )
+        )
+
+        val action = engine.onWindowPackageChanged("com.example.visionboard")
+        assertTrue(action is InterventionAction.ShowMindfulPause, "Was $action")
+        assertEquals("custom_vision", (action as InterventionAction.ShowMindfulPause).appId)
+    }
+
     private class FakeTimeProvider(
         initialRealtimeMs: Long,
         initialEpochDay: Long
@@ -801,6 +879,7 @@ class FocusPolicyEngineTest {
     ) : FocusPolicyStore {
         private val usageByApp = mutableMapOf<String, AppUsageState>()
         private var rewardState: FocusRewardState? = null
+        private val sessionGuards = mutableListOf<SessionGuard>()
 
         override fun getConfig(): FocusConfig = config
 
@@ -810,7 +889,7 @@ class FocusPolicyEngineTest {
 
         override fun getUsageState(appId: String, currentEpochDay: Long): AppUsageState {
             val existing = usageByApp[appId]
-            if (existing == null || existing.epochDay != currentEpochDay) {
+            if (existing == null || existing.epochDay < currentEpochDay) {
                 val preservedCooldown = existing?.cooldownUntilRealtimeMs ?: 0L
                 val fresh = AppUsageState(
                     appId = appId,
@@ -852,6 +931,13 @@ class FocusPolicyEngineTest {
 
         override fun saveRewardState(state: FocusRewardState) {
             rewardState = state
+        }
+
+        override fun getSessionGuards(): List<SessionGuard> = sessionGuards.toList()
+
+        override fun saveSessionGuards(guards: List<SessionGuard>) {
+            sessionGuards.clear()
+            sessionGuards.addAll(guards)
         }
     }
 }

@@ -6,6 +6,7 @@ import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusLimits
 import com.focusguard.app.domain.FocusPolicyStore
 import com.focusguard.app.domain.FocusRewardState
+import com.focusguard.app.domain.SessionGuard
 import com.focusguard.app.domain.TargetApp
 import java.util.concurrent.ConcurrentHashMap
 
@@ -145,7 +146,7 @@ class FocusPreferencesStore(
 
     override fun getUsageState(appId: String, currentEpochDay: Long): AppUsageState {
         val inMemory = cachedUsageByApp[appId]
-        if (inMemory != null && inMemory.epochDay == currentEpochDay) {
+        if (inMemory != null && currentEpochDay <= inMemory.epochDay) {
             return inMemory
         }
 
@@ -153,9 +154,9 @@ class FocusPreferencesStore(
         val storedCooldownMs = (inMemory?.cooldownUntilRealtimeMs ?: backend.getLong(keyCooldownUntil(appId), 0L))
             .coerceAtLeast(0L)
 
-        // Lazy Daily Reset: se o dia virou (ou nunca foi gravado), zera os segundos consumidos e sessões no dia,
-        // mas preserva o cooldown ativo para evitar burla às 23:59 -> 00:00.
-        if (storedEpochDay != currentEpochDay) {
+        // Lazy Daily Reset: só zera quando o dia realmente avançou (ou nunca foi gravado),
+        // preservando o cooldown ativo para evitar burla às 23:59 -> 00:00.
+        if (storedEpochDay == -1L || currentEpochDay > storedEpochDay) {
             val resetState = AppUsageState(
                 appId = appId,
                 epochDay = currentEpochDay,
@@ -166,6 +167,9 @@ class FocusPreferencesStore(
             saveUsageState(resetState)
             return resetState
         }
+
+        // Retrocesso de relógio/fuso: mantém o estado do dia mais avançado já registrado.
+        // Sobrescrever aqui zeraria a cota e as sessões, abrindo brecha para burlar o limite diário.
 
         val usedSeconds = backend.getLong(keyUsedSeconds(appId), 0L).coerceAtLeast(0L)
         val sessionsToday = backend.getInt(keySessionsToday(appId), 0).coerceAtLeast(0)
@@ -298,6 +302,29 @@ class FocusPreferencesStore(
         }
     }
 
+    override fun getSessionGuards(): List<SessionGuard> {
+        val raw = backend.getString(KEY_SESSION_GUARDS_V1, "")
+        if (raw.isBlank()) return emptyList()
+        return raw.lines().mapNotNull { line ->
+            val parts = line.trim().split("|")
+            if (parts.size < 3) return@mapNotNull null
+            val appId = parts[0].trim()
+            if (appId.isEmpty()) return@mapNotNull null
+            val groupId = parts[1].trim()
+            val cooldownSeconds = parts[2].trim().toLongOrNull()?.coerceAtLeast(0L) ?: return@mapNotNull null
+            SessionGuard(appId = appId, groupId = groupId, cooldownSeconds = cooldownSeconds)
+        }
+    }
+
+    override fun saveSessionGuards(guards: List<SessionGuard>) {
+        val serialized = guards.joinToString("\n") { guard ->
+            "${sanitizeField(guard.appId)}|${sanitizeField(guard.groupId)}|${guard.cooldownSeconds.coerceAtLeast(0L)}"
+        }
+        backend.editBatch {
+            putString(KEY_SESSION_GUARDS_V1, serialized)
+        }
+    }
+
     private fun keyEpochDay(appId: String): String = "usage_${appId}_epoch_day"
     private fun keyUsedSeconds(appId: String): String = "usage_${appId}_used_sec"
     private fun keyCooldownUntil(appId: String): String = "usage_${appId}_cooldown_ms"
@@ -405,6 +432,7 @@ class FocusPreferencesStore(
         private const val KEY_FOCUS_GROUPS_V1 = "cfg_focus_groups_v1"
         private const val KEY_CUSTOM_APPS_V1 = "cfg_custom_apps_v1"
         private const val KEY_SHARED_QUOTA_DEFAULT = "cfg_shared_quota_default"
+        private const val KEY_SESSION_GUARDS_V1 = "session_guards_v1"
 
         private const val KEY_REWARD_EPOCH_DAY = "reward_epoch_day"
         private const val KEY_REWARD_ATTEMPTS_TODAY = "reward_attempts_today"
