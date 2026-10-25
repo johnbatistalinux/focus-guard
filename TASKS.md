@@ -99,3 +99,11 @@
 - [x] Task 14.4: [Overlay] Self-heal the floating pill when `WindowManager` detaches it and make the pill window immune to IME insets (`SOFT_INPUT_ADJUST_NOTHING`, zero insets fitting)
 - [x] Task 14.5: [Tests & Docs] Cover the arbiter with 9 JVM tests plus the `hasForegroundSession` lifecycle test; sync `ARCHITECTURE.md`, `AGENTS.md`, and `PRODUCT.md`
 - [x] Task 14.6: [Gate] Bump version to 2.0.1 (versionCode 13), run the JVM suite, assemble the release build, and publish the GitHub release
+
+## Milestone 15: v2.0.2 — Inverted Foreground Flow (Event Entry, Tick-Sampled Exit)
+- [x] Task 15.1: [Domain] Rewrite `WindowExitArbiter` around `ForegroundSnapshot` + `Verdict`, add `SessionExitTracker` (2 hidden ticks / 5 unknown ticks), and cover both with JVM tests
+- [x] Task 15.2: [Domain] Add `FocusPolicyEngine.onForegroundLost()` so the service can express a foreground loss without fabricating a package name
+- [x] Task 15.3: [Service] Remove the v2.0.1 deferred-exit confirmation; restrict `onAccessibilityEvent` to the event-driven entry path and sample the interactive window list once per second in `handleSecondTick`
+- [x] Task 15.4: [Service] Add `OverlayController.ensurePillAttached()` and the debug-only `DebugEventLog` ring buffer (event, snapshot + verdict, confirmed exit, engine action, overlay attach/detach)
+- [x] Task 15.5: [Tests & Docs] Add `SessionExitTrackerTest`, rewrite `WindowExitArbiterTest` for verdicts, extend `FocusPolicyEngineTest`, and sync `ARCHITECTURE.md`, `AGENTS.md`, and `TASKS.md`
+- [x] Task 15.6: [Gate] Bump version to 2.0.2 (versionCode 14), run the JVM suite, assemble the release build, and record the APK size and SHA-256

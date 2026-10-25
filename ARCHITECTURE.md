@@ -102,14 +102,16 @@ The project enforces strict separation within a single root package and 4 cohesi
     - `FocusModels.kt` — Core models (`GroupIcon`, `FocusGroup`, `FocusConfig`, `AppUsageState`, `FocusRewardState`, `FocusRewardSummary`, `ActiveSessionSnapshot`, `BlockReason`, `InterventionAction`).
     - `FocusLimits.kt` — Domain limits, ranges, preset matching, session-quota coercion, and quota danger levels.
     - `FocusPolicyEngine.kt` — Pure deterministic state machine (Progressive Pause, 1 Hz Breathing Guide, 1-min Micro-Session, Multi-App Paused Session Map, Voluntary Early-Exit Bonus, and Bitmask Consistency).
-    - `WindowExitArbiter.kt` — Pure window-transition arbiter that separates a real app switch from transient IME/OEM surfaces before the session is paused.
+    - `WindowExitArbiter.kt` — Pure verdict resolver (`SESSION_VISIBLE` / `SESSION_HIDDEN` / `UNKNOWN`) that answers whether the monitored app still owns a visible `TYPE_APPLICATION` window; it never reads the event package that triggered the sample.
+    - `SessionExitTracker.kt` — Pure stateful debouncer that turns 1 Hz verdicts into one confirmed exit (2 hidden ticks, 5 unknown ticks) and resets its streaks on any visible sample.
     - `TimeProvider.kt` — Monotonic clock and local calendar abstraction (`TimeProvider`) plus the `FocusPolicyStore` persistence contract.
   - `data/`
     - `KeyValueBackend.kt` — Minimal storage abstraction (`KeyValueBackend`, `SharedPreferencesBackend`) and `FocusRuntime` process-wide singleton providing shared `FocusPreferencesStore` and `FocusPolicyEngine` instances across activities and `FocusAccessibilityService`.
     - `FocusPreferencesStore.kt` — Ultra-light `SharedPreferences` implementation with in-memory caching, atomic batch commits, lazy daily reset, `consistencyBitmask` rollover, group icon migration, onboarding flag, and stats resets.
   - `service/`
-    - `FocusAccessibilityService.kt` — Android `AccessibilityService` managing lifecycle, dynamic `packageNames` filtering, interactive window & IME detection, deferred exit confirmation, screen-off/unlock handling, `GLOBAL_ACTION_HOME`, barrier preview, and dashboard session termination.
-    - `OverlayController.kt` — Window lifecycle manager over `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`), owning only attachment, `FLAG_KEEP_SCREEN_ON`, the floating pill flags (`FLAG_ALT_FOCUSABLE_IM`, zero insets fitting), and pill self-healing when the OEM detaches the overlay.
+    - `FocusAccessibilityService.kt` — Android `AccessibilityService` implementing the inverted foreground flow: event-driven entry (monitored app opened) and tick-sampled exit (1 Hz `getWindows()` snapshot resolved by `WindowExitArbiter`), plus the launcher/dashboard fast path, dynamic `packageNames` filtering, screen-off/unlock handling, `GLOBAL_ACTION_HOME`, barrier preview, and dashboard session termination.
+    - `OverlayController.kt` — Window lifecycle manager over `WindowManager` (`TYPE_ACCESSIBILITY_OVERLAY`), owning only attachment, `FLAG_KEEP_SCREEN_ON`, the floating pill flags (`FLAG_ALT_FOCUSABLE_IM`, zero insets fitting), `ensurePillAttached()` projection of the engine state, and pill self-healing when the OEM detaches the overlay.
+    - `DebugEventLog.kt` — Debug-only diagnostics ring buffer (last 100 entries + `Log.d("FocusGuard", …)`) behind a lazy message lambda; the branch is a `static final false` that R8 strips from release builds.
     - `BarrierView.kt` — Full-screen hierarchy shared by the mindful pause (4s breathing ring, quota gauge, progressive CTAs) and the strict hard block (live `mm:ss` countdown, one-line reason, single exit action). Bound in place on every tick.
     - `FloatingPillView.kt` — Compact session pill with monospaced countdown, session-progress track, tap-to-swap-side, and long-press early exit.
     - `MainThreadTicker.kt` — Zero-coroutine 1 Hz countdown wrapper around `Handler(Looper.getMainLooper())`.
@@ -264,7 +266,9 @@ enum class BlockReason {
 2. **Transient Window Filtering (Anti-Event-Spam):**
    - Virtual keyboards (`Gboard`, `Samsung Honeyboard`, `SwiftKey`) and system overlays (`SystemUI`, `PermissionController`) emit `TYPE_WINDOW_STATE_CHANGED` while the user is typing inside a monitored app.
    - `FocusAccessibilityService` ignores transient IME/system packages and non-interactive screen states (`PowerManager.isInteractive == false`) so active sessions are neither falsely reset nor drained while the screen is off.
-   - Any remaining unknown package (e.g. One UI keyboard helpers) never pauses the session on a single event: the service defers for 300 ms and asks `WindowExitArbiter` whether the monitored app still owns a visible `TYPE_APPLICATION` window before removing the floating pill.
+   - Any remaining unknown package (e.g. One UI keyboard helpers) can never pause the session: while a session counts, the service samples the interactive window list once per second and `WindowExitArbiter` resolves it into `SESSION_VISIBLE`, `SESSION_HIDDEN` or `UNKNOWN`. `SessionExitTracker` confirms an exit only after 2 hidden samples (~2 s) or 5 unknown samples (~5 s), while the launcher/dashboard fast path pauses immediately.
+   - Entry stays event-driven: only a monitored package (or an alias) reaches the engine on `TYPE_WINDOW_STATE_CHANGED`; every other window (IME, autofill, OEM helper, third-party app) is discarded before the state machine is touched.
+   - The overlay is a projection of the engine state: `OverlayController.ensurePillAttached()` drops a detached pill before each render, so "session counting" always implies "pill on screen".
 3. **Dynamic OS-Level Package Filtering:**
    - When idle, `serviceInfo.packageNames` is restricted solely to `enabledPackages`, keeping FocusGuard at `0.0%` CPU during normal phone usage.
    - Broad window-transition listening (`packageNames = null`) is activated strictly while a session or pause barrier is live in order to detect home/app exits immediately without background polling.

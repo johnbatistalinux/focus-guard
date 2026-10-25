@@ -44,14 +44,14 @@ Use this table to jump directly to the 2–3 files relevant to your task without
 
 | Task / Responsibility | Target Directory & Key Files |
 | :--- | :--- |
-| **State machine, session lifecycle, pause/cooldown/quota evaluation, anti-bypass lock** | `app/src/main/java/com/focusguard/app/domain/`<br/>• `FocusPolicyEngine.kt` (core state machine)<br/>• `FocusModels.kt` (`FocusGroup`, `FocusConfig`, `InterventionAction`, `BlockReason`)<br/>• `FocusLimits.kt` (parameter bounds, presets, quota levels)<br/>• `SocialAppCatalog.kt` (curated social app definitions)<br/>• `WindowExitArbiter.kt` (real app switch vs. transient IME/OEM window)<br/>• `TimeProvider.kt` (clock & `FocusPolicyStore` interface) |
+| **State machine, session lifecycle, pause/cooldown/quota evaluation, anti-bypass lock, foreground exit sampling** | `app/src/main/java/com/focusguard/app/domain/`<br/>• `FocusPolicyEngine.kt` (core state machine, `onForegroundLost()`)<br/>• `FocusModels.kt` (`FocusGroup`, `FocusConfig`, `InterventionAction`, `BlockReason`)<br/>• `FocusLimits.kt` (parameter bounds, presets, quota levels)<br/>• `SocialAppCatalog.kt` (curated social app definitions)<br/>• `WindowExitArbiter.kt` (verdicts from a `ForegroundSnapshot`; never reads the event package)<br/>• `SessionExitTracker.kt` (1 Hz verdict debouncer: 2 hidden ticks / 5 unknown ticks)<br/>• `TimeProvider.kt` (clock & `FocusPolicyStore` interface) |
 | **Persistence, preferences, in-memory cache, lazy daily reset, process runtime** | `app/src/main/java/com/focusguard/app/data/`<br/>• `FocusPreferencesStore.kt` (storage, migrations, bitmask rollover)<br/>• `KeyValueBackend.kt` (`KeyValueBackend` & `FocusRuntime` singleton) |
-| **Accessibility events, dynamic `packageNames` filter, overlay window lifecycle, floating pill & barrier UI** | `app/src/main/java/com/focusguard/app/service/`<br/>• `FocusAccessibilityService.kt` (window events, IME filtering, `GLOBAL_ACTION_HOME`)<br/>• `OverlayController.kt` (`WindowManager` attach/detach & window flags)<br/>• `BarrierView.kt` (full-screen mindful pause & strict hard-block view)<br/>• `FloatingPillView.kt` (in-session floating countdown pill)<br/>• `MainThreadTicker.kt` (1 Hz `Handler` timer) |
+| **Accessibility events, dynamic `packageNames` filter, overlay window lifecycle, floating pill & barrier UI** | `app/src/main/java/com/focusguard/app/service/`<br/>• `FocusAccessibilityService.kt` (event-driven entry only; foreground exits are tick-sampled at 1 Hz in `handleSecondTick`, never inferred from the event package)<br/>• `OverlayController.kt` (`WindowManager` attach/detach, window flags, `ensurePillAttached()`)<br/>• `BarrierView.kt` (full-screen mindful pause & strict hard-block view)<br/>• `FloatingPillView.kt` (in-session floating countdown pill)<br/>• `DebugEventLog.kt` (debug-only ring buffer, `adb logcat -s FocusGuard`)<br/>• `MainThreadTicker.kt` (1 Hz `Handler` timer) |
 | **Activities, 3-tab navigation, screens, bottom sheets, app discovery** | `app/src/main/java/com/focusguard/app/ui/`<br/>• `MainActivity.kt` (3-tab shell: Hoje, Grupos, Ajustes & lock enforcement)<br/>• `OnboardingActivity.kt` (3-step first-run wizard)<br/>• `TodayScreen.kt`, `GroupsScreen.kt`, `SettingsScreen.kt`<br/>• `GroupCardView.kt`, `ReclaimedCardView.kt`, `ServiceStatusCard.kt`, `AnchorHabitCardView.kt`<br/>• `BottomSheet.kt`, `GroupConfigSheet.kt`, `AppPickerSheet.kt`, `AnchorHabitSheet.kt`, `ConfirmSheet.kt`<br/>• `InstalledAppScanner.kt`, `GroupIconResources.kt` |
 | **UI state mapping & formatting** | `app/src/main/java/com/focusguard/app/ui/presenter/`<br/>• `DashboardPresenter.kt` (`TodayState`, `SettingsState`, `GroupLimitState`) |
 | **Design tokens, theme helpers, native widget factories** | `app/src/main/java/com/focusguard/app/ui/design/`<br/>• `Theme.kt` (`Palette`, `TypeScale`, `Space`, `Radius`, `Motion`, `Theme`)<br/>• `UiKit.kt` (`button`, `cardContainer`, `QuotaBarView`, switches, seekbars) |
 | **Resources (Portuguese copy, vector icons, accessibility config)** | `app/src/main/res/`<br/>• `values/strings.xml`, `values/themes.xml`, `values/colors.xml`<br/>• `drawable/ic_*.xml`<br/>• `xml/accessibility_service_config.xml` |
-| **JVM Unit Tests (domain & data verification)** | `app/src/test/java/com/focusguard/app/`<br/>• `domain/FocusPolicyEngineTest.kt`<br/>• `domain/FocusLimitsTest.kt`<br/>• `domain/WindowExitArbiterTest.kt`<br/>• `data/FocusPreferencesStoreTest.kt` |
+| **JVM Unit Tests (domain & data verification)** | `app/src/test/java/com/focusguard/app/`<br/>• `domain/FocusPolicyEngineTest.kt`<br/>• `domain/FocusLimitsTest.kt`<br/>• `domain/WindowExitArbiterTest.kt`<br/>• `domain/SessionExitTrackerTest.kt`<br/>• `data/FocusPreferencesStoreTest.kt` |
 
 ---
 
@@ -60,11 +60,11 @@ Use this table to jump directly to the 2–3 files relevant to your task without
 Run these commands from the repository root (`/home/johnb/Projects/focus-guard`):
 
 ```bash
-# Run local JVM unit tests (JUnit 5) for domain & persistence logic
-./gradlew testDebugUnitTest
+# Host JDK 27 cannot be parsed by Kotlin 2.0.21 ("IllegalArgumentException: 27").
+# Always build with the pinned JDK 21:
+JAVA_HOME=$HOME/.local/share/jdks/jdk-21.0.13+9 ./gradlew testDebugUnitTest
 
-# Verify full debug APK compilation and resource linking
-./gradlew assembleDebug
+JAVA_HOME=$HOME/.local/share/jdks/jdk-21.0.13+9 ./gradlew assembleDebug
 ```
 
 - **Mandatory Gate:** Every non-trivial modification to `domain/` or `data/` **must** include or update unit tests in `app/src/test/java/com/focusguard/app/` and pass `./gradlew testDebugUnitTest` before you claim completion.
@@ -81,6 +81,8 @@ Run these commands from the repository root (`/home/johnb/Projects/focus-guard`)
 5. **NEVER use wall-clock time (`System.currentTimeMillis()`) for countdown intervals:** Always use `TimeProvider.elapsedRealtimeMillis()` (`SystemClock.elapsedRealtime()`) for session, pause, and cooldown durations so clock tampering cannot bypass blocks.
 6. **NEVER ingest the entire repository for localized tasks:** `FocusPolicyEngine.kt` (~53 KB) and `FocusPreferencesStore.kt` (~25 KB) are large. Use targeted symbol searches (`rg -n`) and read narrow line slices instead of dumping whole files into context.
 7. **NEVER rewrite entire 300–500 line files for small tweaks:** Use surgical search-and-replace edits to preserve existing structure, insets handling, and accessibility semantics.
+8. **NEVER resurrect event-package exit detection:** Foreground exits are tick-sampled (`handleSecondTick` → `WindowExitArbiter` → `SessionExitTracker`). Do not infer an exit from `event.packageName`, do not reintroduce deferred exit confirmation timers, and never let an unfiltered IME/OEM/third-party window reach `FocusPolicyEngine`.
+9. **NEVER keep the pill out of sync with the engine:** While `hasForegroundSession()` is true, call `OverlayController.ensurePillAttached()` before rendering so a pill dropped by the OEM window manager is re-attached on the next tick.
 
 ---
 
