@@ -17,6 +17,11 @@ android {
         versionName = "2.0.1"
     }
 
+    buildFeatures {
+        // Required by DebugEventLog to guard diagnostics behind BuildConfig.DEBUG.
+        buildConfig = true
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true

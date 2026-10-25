@@ -88,6 +88,22 @@ class OverlayController(
         removeFloatingPill()
     }
 
+    /**
+     * Reconciles "engine says a session is active" with "the pill is on screen".
+     *
+     * Called once per tick before the engine renders, so a pill dropped by the OEM window manager
+     * (IME inset reconfiguration, memory pressure, animation glitch) is forgotten here and
+     * re-attached by the very next [render] call.
+     */
+    fun ensurePillAttached() {
+        val view = pillView ?: return
+        if (!view.isAttachedToWindow) {
+            pillView = null
+            pillParams = null
+            DebugEventLog.log("overlay") { "pill dropped by window manager; will re-attach" }
+        }
+    }
+
     fun isShowingBarrier(): Boolean = barrierView != null
 
     private fun handleExitToHome() {
@@ -233,6 +249,7 @@ class OverlayController(
 
         pillView = view
         pillParams = params
+        DebugEventLog.log("overlay") { "pill attached alignStart=$isPillAlignedStart" }
         return view
     }
 
@@ -243,5 +260,6 @@ class OverlayController(
         runCatching {
             if (view.isAttachedToWindow) windowManager.removeView(view)
         }
+        DebugEventLog.log("overlay") { "pill detached" }
     }
 }
