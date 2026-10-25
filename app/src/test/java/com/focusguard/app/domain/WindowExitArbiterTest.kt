@@ -1,7 +1,6 @@
 package com.focusguard.app.domain
 
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class WindowExitArbiterTest {
@@ -9,158 +8,80 @@ class WindowExitArbiterTest {
     private val instagramPackages = setOf("com.instagram.android", "com.instagram.lite")
 
     @Test
-    fun `teclado aberto mantem a sessao quando a janela do Instagram segue visivel`() {
-        val snapshot = WindowExitArbiter.WindowSnapshot(
-            visibleApplicationPackages = listOf("com.instagram.android"),
-            visibleApplicationWindowCount = 1,
+    fun `teclado aberto sobre o Instagram mantem a sessao visivel`() {
+        val snapshot = WindowExitArbiter.ForegroundSnapshot(
+            applicationPackages = listOf("com.instagram.android"),
+            applicationWindowCount = 1,
             isImeVisible = true
         )
 
-        assertFalse(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.samsung.android.honeyboard.helper",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = false,
-                snapshot = snapshot
-            )
+        assertEquals(
+            WindowExitArbiter.Verdict.SESSION_VISIBLE,
+            WindowExitArbiter.evaluate(instagramPackages, snapshot)
         )
     }
 
     @Test
-    fun `painel auxiliar da OEM sobre o app nao pausa a sessao`() {
-        val snapshot = WindowExitArbiter.WindowSnapshot(
-            visibleApplicationPackages = listOf("com.samsung.android.suggestions", "com.instagram.android"),
-            visibleApplicationWindowCount = 2,
+    fun `painel auxiliar da OEM sobre o Instagram mantem a sessao visivel`() {
+        val snapshot = WindowExitArbiter.ForegroundSnapshot(
+            applicationPackages = listOf("com.samsung.android.suggestions", "com.instagram.android"),
+            applicationWindowCount = 2,
             isImeVisible = true
         )
 
-        assertFalse(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.samsung.android.suggestions",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = false,
-                snapshot = snapshot
-            )
+        assertEquals(
+            WindowExitArbiter.Verdict.SESSION_VISIBLE,
+            WindowExitArbiter.evaluate(instagramPackages, snapshot)
         )
     }
 
     @Test
-    fun `troca real de app pausa a sessao quando o Instagram nao esta mais visivel`() {
-        val snapshot = WindowExitArbiter.WindowSnapshot(
-            visibleApplicationPackages = listOf("com.whatsapp"),
-            visibleApplicationWindowCount = 1,
+    fun `somente o WhatsApp visivel e totalmente atribuido resolve sessao escondida`() {
+        val snapshot = WindowExitArbiter.ForegroundSnapshot(
+            applicationPackages = listOf("com.whatsapp"),
+            applicationWindowCount = 1,
             isImeVisible = false
         )
 
-        assertTrue(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.whatsapp",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = false,
-                snapshot = snapshot
-            )
+        assertEquals(
+            WindowExitArbiter.Verdict.SESSION_HIDDEN,
+            WindowExitArbiter.evaluate(instagramPackages, snapshot)
         )
     }
 
     @Test
-    fun `launcher sempre conta como saida explicita`() {
-        val snapshot = WindowExitArbiter.WindowSnapshot(
-            visibleApplicationPackages = listOf("com.sec.android.app.launcher"),
-            visibleApplicationWindowCount = 1,
+    fun `alias Instagram Lite visivel mantem a sessao principal visivel`() {
+        val snapshot = WindowExitArbiter.ForegroundSnapshot(
+            applicationPackages = listOf("com.instagram.lite"),
+            applicationWindowCount = 1,
+            isImeVisible = true
+        )
+
+        assertEquals(
+            WindowExitArbiter.Verdict.SESSION_VISIBLE,
+            WindowExitArbiter.evaluate(instagramPackages, snapshot)
+        )
+    }
+
+    @Test
+    fun `janela de aplicacao sem raiz legivel resolve desconhecido`() {
+        val snapshot = WindowExitArbiter.ForegroundSnapshot(
+            applicationPackages = emptyList(),
+            applicationWindowCount = 1,
             isImeVisible = false
         )
 
-        assertTrue(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.sec.android.app.launcher",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = true,
-                snapshot = snapshot
-            )
+        assertEquals(
+            WindowExitArbiter.Verdict.UNKNOWN,
+            WindowExitArbiter.evaluate(instagramPackages, snapshot)
         )
     }
 
     @Test
-    fun `evento do proprio app monitorado nunca e saida`() {
-        assertFalse(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.instagram.android",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = false,
-                snapshot = WindowExitArbiter.WindowSnapshot.UNKNOWN
-            )
-        )
-    }
-
-    @Test
-    fun `janela de alias do app monitorado tambem protege a sessao`() {
-        val snapshot = WindowExitArbiter.WindowSnapshot(
-            visibleApplicationPackages = listOf("com.instagram.lite"),
-            visibleApplicationWindowCount = 1,
-            isImeVisible = true
-        )
-
-        assertFalse(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.samsung.android.honeyboard",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = false,
-                snapshot = snapshot
-            )
-        )
-    }
-
-    @Test
-    fun `janela sem raiz legivel com teclado na tela mantem a sessao`() {
-        val snapshot = WindowExitArbiter.WindowSnapshot(
-            visibleApplicationPackages = emptyList(),
-            visibleApplicationWindowCount = 1,
-            isImeVisible = true
-        )
-
-        assertFalse(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.samsung.android.honeyboard.helper",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = false,
-                snapshot = snapshot
-            )
-        )
-    }
-
-    @Test
-    fun `janela sem raiz legivel e sem teclado aceita a saida`() {
-        val snapshot = WindowExitArbiter.WindowSnapshot(
-            visibleApplicationPackages = emptyList(),
-            visibleApplicationWindowCount = 1,
-            isImeVisible = false
-        )
-
-        assertTrue(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.whatsapp",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = false,
-                snapshot = snapshot
-            )
-        )
-    }
-
-    @Test
-    fun `leitura de janelas indisponivel mantem a sessao enquanto o teclado esta na tela`() {
-        val snapshot = WindowExitArbiter.WindowSnapshot(
-            visibleApplicationPackages = emptyList(),
-            visibleApplicationWindowCount = 0,
-            isImeVisible = true
-        )
-
-        assertFalse(
-            WindowExitArbiter.isRealExit(
-                eventPackage = "com.samsung.android.honeyboard.helper",
-                monitoredPackages = instagramPackages,
-                isHomeLauncherEvent = false,
-                snapshot = snapshot
-            )
+    fun `lista de janelas vazia resolve desconhecido`() {
+        assertEquals(
+            WindowExitArbiter.Verdict.UNKNOWN,
+            WindowExitArbiter.evaluate(instagramPackages, WindowExitArbiter.ForegroundSnapshot.UNKNOWN)
         )
     }
 }

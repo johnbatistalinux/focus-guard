@@ -131,6 +131,34 @@ class FocusPolicyEngineTest {
     }
 
     @Test
+    fun `onForegroundLost pausa a sessao ativa e retomar preserva o tempo restante`() {
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession()
+        assertTrue(engine.hasForegroundSession())
+
+        repeat(10) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+
+        val lostAction = engine.onForegroundLost()
+        assertEquals(InterventionAction.DismissOverlay, lostAction)
+        assertFalse(engine.hasForegroundSession())
+        assertFalse(engine.shouldRunTicker())
+
+        // Voltar ao Instagram retoma a sessão com o mesmo tempo restante (290s).
+        val resumeAction = engine.onWindowPackageChanged("com.instagram.android")
+        val floatingTimer = resumeAction as InterventionAction.ShowFloatingTimer
+        assertEquals(290L, floatingTimer.remainingSessionSeconds)
+        assertTrue(engine.hasForegroundSession())
+        assertTrue(engine.shouldRunTicker())
+    }
+
+    @Test
     fun `hasForegroundSession reflete sessao ativa pausada e encerrada`() {
         assertFalse(engine.hasForegroundSession())
 

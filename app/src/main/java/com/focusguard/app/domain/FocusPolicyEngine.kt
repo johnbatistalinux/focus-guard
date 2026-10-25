@@ -301,6 +301,15 @@ class FocusPolicyEngine(
     fun onScreenTurnedOff(): InterventionAction = handleExitToNonMonitoredApp()
 
     /**
+     * Chamado quando o app monitorado deixou de ocupar o primeiro plano (Launcher, dashboard ou
+     * troca de app detectada pela amostragem de janelas do serviço).
+     *
+     * Existe para que o serviço expresse "o app da sessão saiu da frente" sem fabricar um nome de
+     * pacote que não existe; o estado resultante é idêntico a uma saída real.
+     */
+    fun onForegroundLost(): InterventionAction = handleExitToNonMonitoredApp()
+
+    /**
      * Finaliza sessões em andamento quando o AccessibilityService é encerrado de forma graciosa.
      * Contabiliza o tempo ainda não descarregado e aplica o cooldown devido, evitando que
      * desligar o serviço nas configurações funcione como atalho para escapar da barreira.
