@@ -14,6 +14,12 @@ interface TimeProvider {
      * Retorna o dia atual (`LocalDate.now().toEpochDay()`) para controle de reset diário à meia-noite.
      */
     fun currentEpochDay(): Long
+
+    /**
+     * Retorna o minuto atual do dia local (`0..1439`, onde `0` = `00:00` e `720` = `12:00`),
+     * usado na avaliação pura do Toque de Recolher Circadiano.
+     */
+    fun currentMinuteOfDay(): Int = 720
 }
 
 /**

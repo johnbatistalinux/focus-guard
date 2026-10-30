@@ -143,6 +143,10 @@ class SharedPreferencesBackend(
 object SystemTimeProvider : TimeProvider {
     override fun elapsedRealtimeMs(): Long = SystemClock.elapsedRealtime()
     override fun currentEpochDay(): Long = LocalDate.now().toEpochDay()
+    override fun currentMinuteOfDay(): Int {
+        val now = java.time.LocalTime.now()
+        return now.hour * 60 + now.minute
+    }
 }
 
 /**

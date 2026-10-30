@@ -215,8 +215,8 @@ class FocusAccessibilityService : AccessibilityService() {
         mainHandler.postDelayed(delayedDismissRunnable, CELEBRATION_DISMISS_DELAY_MS)
     }
 
-    private fun handleUserConfirmSession(isQuickMicroSession: Boolean) {
-        val action = policyEngine.onConfirmStartSession(isQuickMicroSession)
+    private fun handleUserConfirmSession(requestedDurationMinutes: Int) {
+        val action = policyEngine.onConfirmStartSession(requestedDurationMinutes = requestedDurationMinutes)
         logAction(action)
         applyInterventionAction(action)
     }

@@ -16,6 +16,7 @@ import android.widget.Toast
 import com.focusguard.app.R
 import com.focusguard.app.data.FocusPreferencesStore
 import com.focusguard.app.data.FocusRuntime
+import com.focusguard.app.data.SystemTimeProvider
 import com.focusguard.app.domain.FocusConfig
 import com.focusguard.app.domain.FocusGroup
 import com.focusguard.app.domain.FocusPolicyEngine
@@ -126,6 +127,7 @@ class MainActivity : Activity() {
             onOpenAccessibilitySettings = { openAccessibilitySettings() },
             onTestBarrier = { showBarrierPreview() },
             onChangeAnchorHabit = { openAnchorHabitSheet() },
+            onOpenCommitmentLock = { openCommitmentLockSheet() },
             onResetToday = { confirmResetToday() },
             onResetAll = { confirmResetAll() },
             onLockedAttempt = { notifyLockedAttempt() }
@@ -265,6 +267,18 @@ class MainActivity : Activity() {
         val config = store.getConfig()
         AnchorHabitSheet(this, config.selectedAnchorHabit) { habit ->
             updateConfig(config.copy(selectedAnchorHabit = habit))
+        }.show()
+    }
+
+    private fun openCommitmentLockSheet() {
+        if (policyEngine.getSettingsLockStatus().isLocked) {
+            notifyLockedAttempt()
+            return
+        }
+        val config = store.getConfig()
+        CommitmentLockSheet(this) { days ->
+            val targetEpochDay = SystemTimeProvider.currentEpochDay() + days.toLong()
+            updateConfig(config.copy(commitmentLockUntilEpochDay = targetEpochDay))
         }.show()
     }
 

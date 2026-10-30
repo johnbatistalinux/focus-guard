@@ -309,6 +309,51 @@ class FocusPreferencesStoreTest {
         assertTrue(reloaded.enabledAppIds.isEmpty(), "Enabled app IDs must be empty when all groups are disabled")
     }
 
+    @Test
+    fun `persiste desmame gradual, toque de recolher e contrato de ulisses mantendo compatibilidade v1`() {
+        val groupWithAdvancedRules = FocusGroup(
+            id = "grp_social",
+            name = "Redes Sociais",
+            iconKey = "social",
+            enabled = true,
+            appIds = setOf("instagram"),
+            mindfulPauseSeconds = 12,
+            sessionDurationMinutes = 5,
+            cooldownMinutes = 15,
+            dailyQuotaMinutes = 40,
+            progressivePauseEnabled = true,
+            sharedQuota = true,
+            taperingEnabled = true,
+            taperingTargetQuotaMinutes = 15,
+            taperingStartEpochDay = 20_500L,
+            quietHoursEnabled = true,
+            quietHoursStartMinute = 22 * 60,
+            quietHoursEndMinute = 7 * 60
+        )
+        val config = FocusConfig(
+            groups = listOf(groupWithAdvancedRules),
+            commitmentLockUntilEpochDay = 20_514L
+        )
+        store.saveConfig(config)
+        store.invalidateConfigCache()
+
+        val reloaded = store.getConfig()
+        assertEquals(20_514L, reloaded.commitmentLockUntilEpochDay)
+        assertEquals(groupWithAdvancedRules, reloaded.groups.single())
+
+        // Simula registro legado de 11 colunas (pré-v2.1) e garante leitura sem falha
+        backend.putString(
+            "cfg_focus_groups_v1",
+            "grp_legacy|Legado|social|true|instagram,tiktok|10|5|10|30|true|true"
+        )
+        store.invalidateConfigCache()
+        val legacyLoaded = store.getConfig().groups.single()
+        assertEquals("grp_legacy", legacyLoaded.id)
+        assertEquals(false, legacyLoaded.taperingEnabled)
+        assertEquals(30, legacyLoaded.taperingTargetQuotaMinutes)
+        assertEquals(false, legacyLoaded.quietHoursEnabled)
+    }
+
     private class FakeKeyValueBackend : KeyValueBackend {
         private val stringSets = mutableMapOf<String, Set<String>>()
         private val ints = mutableMapOf<String, Int>()

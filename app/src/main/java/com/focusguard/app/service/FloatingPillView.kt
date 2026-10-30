@@ -29,6 +29,7 @@ class FloatingPillView(
     private val timerText: TextView
     private val progressFill: View
     private var lastStateKey: Int = -1
+    private var isEndingSoonNow: Boolean = false
 
     init {
         orientation = VERTICAL
@@ -68,8 +69,13 @@ class FloatingPillView(
         addView(track)
 
         setOnClickListener { view ->
-            view.hapticLight()
-            onToggleSide()
+            if (isEndingSoonNow) {
+                view.hapticConfirm()
+                onEndSession()
+            } else {
+                view.hapticLight()
+                onToggleSide()
+            }
         }
         setOnLongClickListener { view ->
             view.hapticConfirm()
@@ -82,9 +88,16 @@ class FloatingPillView(
         val safeRemaining = remainingSeconds.coerceAtLeast(0L)
         val isEndingSoon = safeRemaining <= 30L
         val isUrgent = safeRemaining <= 10L
+        val clockStr = formatClock(safeRemaining)
 
-        timerText.text = formatClock(safeRemaining)
-        contentDescription = context.getString(R.string.overlay_pill_desc, timerText.text)
+        isEndingSoonNow = isEndingSoon
+        if (isEndingSoon) {
+            timerText.text = context.getString(R.string.overlay_pill_ending_soon, clockStr)
+            contentDescription = context.getString(R.string.overlay_pill_ending_desc, clockStr)
+        } else {
+            timerText.text = clockStr
+            contentDescription = context.getString(R.string.overlay_pill_desc, clockStr)
+        }
 
         val stateKey = when {
             isUrgent -> 2
@@ -92,6 +105,7 @@ class FloatingPillView(
             else -> 0
         }
         if (stateKey != lastStateKey) {
+            val enteredEndingWindow = lastStateKey == 0 && stateKey >= 1
             lastStateKey = stateKey
             val (fill, textColor, barColor) = when (stateKey) {
                 2 -> Triple(Palette.DANGER_SUBTLE, Palette.DANGER, Palette.DANGER)
@@ -101,6 +115,9 @@ class FloatingPillView(
             background = Theme.box(fill, Radius.PILL, strokeColor = Palette.HAIRLINE, strokeWidthDp = 1)
             timerText.setTextColor(textColor)
             progressFill.background = Theme.box(barColor, Radius.PILL)
+            if (enteredEndingWindow) {
+                hapticLight()
+            }
         }
 
         val ratio = if (totalSeconds > 0L) {

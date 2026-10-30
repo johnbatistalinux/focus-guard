@@ -19,7 +19,7 @@ import com.focusguard.app.ui.design.dp
 class OverlayController(
     private val context: Context,
     private val onExitToHomeClicked: () -> Unit,
-    private val onConfirmSessionClicked: (isQuickMicroSession: Boolean) -> Unit,
+    private val onConfirmSessionClicked: (requestedDurationMinutes: Int) -> Unit,
     private val onEndSessionEarlyClicked: () -> Unit = {}
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -77,7 +77,8 @@ class OverlayController(
                     anchorActionLabel = context.getString(R.string.overlay_exit_default),
                     allowQuickMicroSession = true,
                     groupName = context.getString(R.string.onboarding_group_name),
-                    sessionDurationMinutes = 5
+                    sessionDurationMinutes = 5,
+                    availableSessionMinutes = listOf(1, 3, 5)
                 )
             )
         }
@@ -136,11 +137,11 @@ class OverlayController(
         }
     }
 
-    private fun handleConfirmSession(isQuickMicroSession: Boolean) {
+    private fun handleConfirmSession(requestedDurationMinutes: Int) {
         if (previewMode) {
             dismissAll()
         } else {
-            onConfirmSessionClicked(isQuickMicroSession)
+            onConfirmSessionClicked(requestedDurationMinutes)
         }
     }
 

@@ -9,8 +9,16 @@ object FocusLimits {
     val SESSION_MINUTES: IntRange = 1..60
     val COOLDOWN_MINUTES: IntRange = 1..180
     val DAILY_QUOTA_MINUTES: IntRange = 5..240
+    val MINUTE_OF_DAY_RANGE: IntRange = 0..1439
 
     const val MAX_ANCHOR_HABIT_LENGTH: Int = 40
+    const val TAPERING_DURATION_DAYS: Int = 21
+    const val DEFAULT_QUIET_START_MINUTE: Int = 22 * 60 + 30 // 22:30
+    const val DEFAULT_QUIET_END_MINUTE: Int = 7 * 60 + 30    // 07:30
+
+    val COMMITMENT_LOCK_DAY_OPTIONS: List<Int> = listOf(3, 7, 14, 30)
+    val QUIET_START_PRESETS: List<Int> = listOf(21 * 60, 22 * 60, 22 * 60 + 30, 23 * 60, 0)
+    val QUIET_END_PRESETS: List<Int> = listOf(6 * 60, 7 * 60, 7 * 60 + 30, 8 * 60, 9 * 60)
 
     enum class ChangedField {
         SESSION_DURATION,
@@ -93,5 +101,34 @@ object FocusLimits {
         return FocusPreset.entries.firstOrNull { preset ->
             preset.matches(pauseSeconds, sessionMinutes, cooldownMinutes, dailyQuotaMinutes)
         }
+    }
+
+    /**
+     * Computes sorted, distinct session budget choices (in minutes) from `[1, 3, maxSessionMinutes]`
+     * that fit within [remainingQuotaSeconds]. If remaining quota is between 1 and 59 seconds,
+     * returns `listOf(1)` so the user can still spend the final partial minute.
+     */
+    fun computeSessionChoices(maxSessionMinutes: Int, remainingQuotaSeconds: Long): List<Int> {
+        if (remainingQuotaSeconds <= 0L) return emptyList()
+        val clampedMax = maxSessionMinutes.coerceIn(SESSION_MINUTES)
+        val remainingWholeMinutes = (remainingQuotaSeconds / 60L).toInt()
+        if (remainingWholeMinutes <= 0) {
+            return listOf(1)
+        }
+        val effectiveMax = minOf(clampedMax, remainingWholeMinutes)
+        return listOf(1, 3, effectiveMax)
+            .filter { it in 1..effectiveMax }
+            .distinct()
+            .sorted()
+    }
+
+    /**
+     * Formats a minute-of-day (`0..1439`) as `"HH:mm"`.
+     */
+    fun formatMinuteOfDay(minuteOfDay: Int): String {
+        val safe = minuteOfDay.coerceIn(MINUTE_OF_DAY_RANGE)
+        val hours = safe / 60
+        val mins = safe % 60
+        return "${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}"
     }
 }

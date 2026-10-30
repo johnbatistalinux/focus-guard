@@ -139,4 +139,56 @@ class FocusLimitsTest {
         val normal = "  Beber 500ml de água 💧  "
         assertEquals("Beber 500ml de água 💧", FocusLimits.sanitizeAnchorHabit(normal))
     }
+
+    @Test
+    fun `computeSessionChoices returns distinct sorted budgets fitting remaining quota`() {
+        assertEquals(listOf(1, 3, 5), FocusLimits.computeSessionChoices(maxSessionMinutes = 5, remainingQuotaSeconds = 600L))
+        assertEquals(listOf(1, 3), FocusLimits.computeSessionChoices(maxSessionMinutes = 5, remainingQuotaSeconds = 180L))
+        assertEquals(listOf(1, 2), FocusLimits.computeSessionChoices(maxSessionMinutes = 5, remainingQuotaSeconds = 120L))
+        assertEquals(listOf(1), FocusLimits.computeSessionChoices(maxSessionMinutes = 1, remainingQuotaSeconds = 600L))
+        assertEquals(listOf(1), FocusLimits.computeSessionChoices(maxSessionMinutes = 5, remainingQuotaSeconds = 45L))
+        assertEquals(emptyList<Int>(), FocusLimits.computeSessionChoices(maxSessionMinutes = 5, remainingQuotaSeconds = 0L))
+    }
+
+    @Test
+    fun `FocusGroup effectiveDailyQuotaMinutes interpolates linearly across 21 days`() {
+        val group = FocusGroup(
+            id = "social",
+            name = "Redes",
+            sessionDurationMinutes = 5,
+            dailyQuotaMinutes = 62,
+            taperingEnabled = true,
+            taperingTargetQuotaMinutes = 20,
+            taperingStartEpochDay = 100L
+        )
+        assertEquals(62, group.effectiveDailyQuotaMinutes(99L))
+        assertEquals(62, group.effectiveDailyQuotaMinutes(100L))
+        // 42 min total reduction over 21 days = -2 min per day
+        assertEquals(60, group.effectiveDailyQuotaMinutes(101L))
+        assertEquals(42, group.effectiveDailyQuotaMinutes(110L))
+        assertEquals(20, group.effectiveDailyQuotaMinutes(121L))
+        assertEquals(20, group.effectiveDailyQuotaMinutes(150L))
+    }
+
+    @Test
+    fun `FocusGroup quiet hours supports overnight and same day ranges`() {
+        val overnight = FocusGroup(
+            id = "social",
+            name = "Redes",
+            quietHoursEnabled = true,
+            quietHoursStartMinute = 22 * 60 + 30, // 22:30 (1350)
+            quietHoursEndMinute = 7 * 60 + 30     // 07:30 (450)
+        )
+        assertTrue(overnight.isWithinQuietHours(22 * 60 + 30))
+        assertTrue(overnight.isWithinQuietHours(23 * 60 + 59))
+        assertTrue(overnight.isWithinQuietHours(0))
+        assertTrue(overnight.isWithinQuietHours(7 * 60 + 29))
+        assertFalse(overnight.isWithinQuietHours(7 * 60 + 30))
+        assertFalse(overnight.isWithinQuietHours(14 * 60))
+
+        // At 23:30 (1410), 8 hours (480 min = 28800s) remain until 07:30 (450)
+        assertEquals(480L * 60L, overnight.remainingQuietHoursSeconds(23 * 60 + 30))
+        // At 06:30 (390), 1 hour (60 min = 3600s) remains until 07:30 (450)
+        assertEquals(60L * 60L, overnight.remainingQuietHoursSeconds(6 * 60 + 30))
+    }
 }

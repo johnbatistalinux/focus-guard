@@ -57,7 +57,13 @@ data class FocusGroup(
     val cooldownMinutes: Int = 10,
     val dailyQuotaMinutes: Int = 30,
     val progressivePauseEnabled: Boolean = true,
-    val sharedQuota: Boolean = true
+    val sharedQuota: Boolean = true,
+    val taperingEnabled: Boolean = false,
+    val taperingTargetQuotaMinutes: Int = dailyQuotaMinutes,
+    val taperingStartEpochDay: Long = 0L,
+    val quietHoursEnabled: Boolean = false,
+    val quietHoursStartMinute: Int = FocusLimits.DEFAULT_QUIET_START_MINUTE,
+    val quietHoursEndMinute: Int = FocusLimits.DEFAULT_QUIET_END_MINUTE
 ) {
     init {
         require(id.isNotBlank()) { "id do grupo não pode ser vazio." }
@@ -66,12 +72,66 @@ data class FocusGroup(
         require(sessionDurationMinutes in FocusLimits.SESSION_MINUTES) { "sessionDurationMinutes deve estar entre ${FocusLimits.SESSION_MINUTES.first} e ${FocusLimits.SESSION_MINUTES.last} min." }
         require(cooldownMinutes in FocusLimits.COOLDOWN_MINUTES) { "cooldownMinutes deve estar entre ${FocusLimits.COOLDOWN_MINUTES.first} e ${FocusLimits.COOLDOWN_MINUTES.last} min." }
         require(dailyQuotaMinutes in FocusLimits.DAILY_QUOTA_MINUTES) { "dailyQuotaMinutes deve estar entre ${FocusLimits.DAILY_QUOTA_MINUTES.first} e ${FocusLimits.DAILY_QUOTA_MINUTES.last} min." }
+        require(taperingTargetQuotaMinutes in FocusLimits.DAILY_QUOTA_MINUTES) { "taperingTargetQuotaMinutes deve estar entre ${FocusLimits.DAILY_QUOTA_MINUTES.first} e ${FocusLimits.DAILY_QUOTA_MINUTES.last} min." }
+        require(quietHoursStartMinute in FocusLimits.MINUTE_OF_DAY_RANGE) { "quietHoursStartMinute inválido." }
+        require(quietHoursEndMinute in FocusLimits.MINUTE_OF_DAY_RANGE) { "quietHoursEndMinute inválido." }
     }
 
     val sessionDurationSeconds: Long get() = sessionDurationMinutes * 60L
     val cooldownSeconds: Long get() = cooldownMinutes * 60L
     val dailyQuotaSeconds: Long get() = dailyQuotaMinutes * 60L
     val icon: GroupIcon get() = GroupIcon.fromStored(iconKey)
+
+    /**
+     * Calcula a cota diária efetiva em minutos para o [currentEpochDay], aplicando interpolação linear
+     * de 21 dias quando [taperingEnabled] está ativo.
+     */
+    fun effectiveDailyQuotaMinutes(currentEpochDay: Long): Int {
+        if (!taperingEnabled || taperingStartEpochDay <= 0L) return dailyQuotaMinutes
+        val safeTarget = taperingTargetQuotaMinutes.coerceIn(sessionDurationMinutes, dailyQuotaMinutes)
+        if (safeTarget >= dailyQuotaMinutes || currentEpochDay <= taperingStartEpochDay) {
+            return dailyQuotaMinutes
+        }
+        val elapsedDays = (currentEpochDay - taperingStartEpochDay)
+            .coerceIn(0L, FocusLimits.TAPERING_DURATION_DAYS.toLong())
+        val totalReduction = dailyQuotaMinutes - safeTarget
+        val reductionToday = ((totalReduction * elapsedDays) / FocusLimits.TAPERING_DURATION_DAYS.toLong()).toInt()
+        return (dailyQuotaMinutes - reductionToday).coerceIn(safeTarget, dailyQuotaMinutes)
+    }
+
+    fun effectiveDailyQuotaSeconds(currentEpochDay: Long): Long =
+        effectiveDailyQuotaMinutes(currentEpochDay) * 60L
+
+    /**
+     * Verifica se o minuto do dia local (`0..1439`) está dentro do Toque de Recolher Circadiano.
+     * Suporta janelas noturnas que cruzam a meia-noite (ex: `22:30` até `07:30`) e janelas no mesmo dia.
+     */
+    fun isWithinQuietHours(minuteOfDay: Int): Boolean {
+        if (!quietHoursEnabled) return false
+        val safeMinute = minuteOfDay.coerceIn(FocusLimits.MINUTE_OF_DAY_RANGE)
+        if (quietHoursStartMinute == quietHoursEndMinute) return false
+        return if (quietHoursStartMinute > quietHoursEndMinute) {
+            // Cruza a meia-noite (ex: 22:30 .. 07:30)
+            safeMinute >= quietHoursStartMinute || safeMinute < quietHoursEndMinute
+        } else {
+            // Mesmo dia (ex: 01:00 .. 07:30)
+            safeMinute in quietHoursStartMinute until quietHoursEndMinute
+        }
+    }
+
+    /**
+     * Retorna os segundos restantes até o fim da janela de Toque de Recolher.
+     */
+    fun remainingQuietHoursSeconds(minuteOfDay: Int): Long {
+        if (!isWithinQuietHours(minuteOfDay)) return 0L
+        val safeMinute = minuteOfDay.coerceIn(FocusLimits.MINUTE_OF_DAY_RANGE)
+        val remainingMinutes = if (safeMinute < quietHoursEndMinute) {
+            quietHoursEndMinute - safeMinute
+        } else {
+            (1440 - safeMinute) + quietHoursEndMinute
+        }
+        return remainingMinutes.coerceAtLeast(1) * 60L
+    }
 
     companion object {
         const val DEFAULT_GROUP_SOCIAL_ID = "group_social"
@@ -103,7 +163,8 @@ data class FocusConfig(
     val selectedAnchorHabit: String = DEFAULT_ANCHOR_HABIT,
     val groups: List<FocusGroup> = emptyList(),
     val customApps: List<TargetApp> = emptyList(),
-    val sharedQuotaEnabled: Boolean = true
+    val sharedQuotaEnabled: Boolean = true,
+    val commitmentLockUntilEpochDay: Long = 0L
 ) {
     init {
         require(mindfulPauseSeconds in FocusLimits.PAUSE_SECONDS) { "mindfulPauseSeconds deve estar entre ${FocusLimits.PAUSE_SECONDS.first} e ${FocusLimits.PAUSE_SECONDS.last} segundos." }
@@ -169,6 +230,7 @@ data class FocusConfig(
         if (progressivePauseEnabled != other.progressivePauseEnabled) return false
         if (selectedAnchorHabit != other.selectedAnchorHabit) return false
         if (sharedQuotaEnabled != other.sharedQuotaEnabled) return false
+        if (commitmentLockUntilEpochDay != other.commitmentLockUntilEpochDay) return false
         if (customApps != other.customApps) return false
         if (getEffectiveGroups() != other.getEffectiveGroups()) return false
 
@@ -184,6 +246,7 @@ data class FocusConfig(
         result = 31 * result + progressivePauseEnabled.hashCode()
         result = 31 * result + selectedAnchorHabit.hashCode()
         result = 31 * result + sharedQuotaEnabled.hashCode()
+        result = 31 * result + commitmentLockUntilEpochDay.hashCode()
         result = 31 * result + customApps.hashCode()
         result = 31 * result + getEffectiveGroups().hashCode()
         return result
@@ -328,7 +391,8 @@ data class ActiveSessionSnapshot(
  */
 enum class BlockReason {
     COOLDOWN_ACTIVE,
-    DAILY_QUOTA_EXCEEDED
+    DAILY_QUOTA_EXCEEDED,
+    QUIET_HOURS_ACTIVE
 }
 
 /**
@@ -369,7 +433,8 @@ sealed interface InterventionAction {
         val reclaimedMinutesOnAbort: Int = 5,
         val allowQuickMicroSession: Boolean = false,
         val groupName: String = "",
-        val sessionDurationMinutes: Int = 15
+        val sessionDurationMinutes: Int = 15,
+        val availableSessionMinutes: List<Int> = emptyList()
     ) : InterventionAction
 
     /** Sessão liberada em andamento: exibe apenas a pílula flutuante discreta no canto da tela. */

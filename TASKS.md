@@ -107,3 +107,11 @@
 - [x] Task 15.4: [Service] Add `OverlayController.ensurePillAttached()` and the debug-only `DebugEventLog` ring buffer (event, snapshot + verdict, confirmed exit, engine action, overlay attach/detach)
 - [x] Task 15.5: [Tests & Docs] Add `SessionExitTrackerTest`, rewrite `WindowExitArbiterTest` for verdicts, extend `FocusPolicyEngineTest`, and sync `ARCHITECTURE.md`, `AGENTS.md`, and `TASKS.md`
 - [x] Task 15.6: [Gate] Bump version to 2.0.2 (versionCode 14), run the JVM suite, assemble the release build, and record the APK size and SHA-256
+
+## Milestone 16: v2.1.0 — Behavioral Anti-Doomscrolling Suite (Features 6, 5, 4, 3 & 2)
+- [x] Task 16.1: [Domain] Add `TimeProvider.currentMinuteOfDay()`, `FocusLimits` helpers (`computeSessionChoices`, tapering/quiet/commitment constants), `FocusGroup` tapering & quiet hours math, `FocusConfig.commitmentLockUntilEpochDay`, `BlockReason.QUIET_HOURS_ACTIVE`, and `ShowMindfulPause.availableSessionMinutes`
+- [x] Task 16.2: [Engine] Implement Quiet Hours blocking/ejection, 21-day quota tapering evaluation, variable session sizing (`1 min` / `3 min` / `Max`) with proportional cooldowns, and Ulysses Contract settings lock in `FocusPolicyEngine`
+- [x] Task 16.3: [Data] Persist `commitmentLockUntilEpochDay` and backward-compatible 17-column `FocusGroup` serialization in `FocusPreferencesStore` and `SystemTimeProvider.currentMinuteOfDay()`
+- [x] Task 16.4: [Overlay] Add 30s haptic pulse + inline exit cue + single-tap early exit in `FloatingPillView`, variable session duration buttons + Quiet Hours hard block in `BarrierView`, and plumbing in `OverlayController` / `FocusAccessibilityService`
+- [x] Task 16.5: [UI] Update `DashboardPresenter` for tapered quotas, add Tapering & Quiet Hours controls to `GroupConfigSheet`, create `CommitmentLockSheet`, and wire Ulysses Contract card in `SettingsScreen` + `MainActivity`
+- [x] Task 16.6: [Tests & Gate] Add comprehensive unit tests in `FocusPolicyEngineTest`, `FocusLimitsTest`, and `FocusPreferencesStoreTest`; pass `./gradlew testDebugUnitTest` and `./gradlew assembleDebug`

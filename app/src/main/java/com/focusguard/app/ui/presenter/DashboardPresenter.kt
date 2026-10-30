@@ -121,6 +121,7 @@ class DashboardPresenter(
 
         apps.sortBy { it.app.displayName.lowercase() }
         val usedMinutes = usedSeconds / 60L
+        val effectiveQuotaMinutes = group.effectiveDailyQuotaMinutes(today)
         val cooldownRemainingSeconds = if (cooldownUntilMs > nowMs) {
             (cooldownUntilMs - nowMs + 999L) / 1000L
         } else {
@@ -129,9 +130,9 @@ class DashboardPresenter(
         return GroupLimitState(
             group = group,
             usedMinutes = usedMinutes,
-            quotaMinutes = group.dailyQuotaMinutes,
-            remainingMinutes = (group.dailyQuotaMinutes - usedMinutes).coerceAtLeast(0L),
-            level = FocusLimits.quotaLevel(usedMinutes, group.dailyQuotaMinutes),
+            quotaMinutes = effectiveQuotaMinutes,
+            remainingMinutes = (effectiveQuotaMinutes - usedMinutes).coerceAtLeast(0L),
+            level = FocusLimits.quotaLevel(usedMinutes, effectiveQuotaMinutes),
             isCooldown = cooldownRemainingSeconds in 1..(group.cooldownSeconds + 5L),
             cooldownRemainingSeconds = cooldownRemainingSeconds,
             apps = apps

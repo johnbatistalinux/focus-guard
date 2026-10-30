@@ -36,7 +36,7 @@ class BarrierView(
     context: Context,
     private val reducedMotion: Boolean,
     private val onExitToHome: () -> Unit,
-    private val onConfirmSession: (Boolean) -> Unit
+    private val onConfirmSession: (Int) -> Unit
 ) : LinearLayout(context) {
 
     private val overline: TextView
@@ -55,7 +55,8 @@ class BarrierView(
     private val blockMeta: TextView
     private val exitButton: Button
     private val proceedButton: Button
-    private val quickButton: Button
+    private val sessionChoicesRow: LinearLayout
+    private var lastSessionChoices: List<Int> = emptyList()
 
     private var breathingAnimator: ValueAnimator? = null
     private var isMindfulPauseActive: Boolean = false
@@ -265,15 +266,16 @@ class BarrierView(
         }
 
         proceedButton = button(context, "", ButtonStyle.SECONDARY) {
-            onConfirmSession(false)
+            onConfirmSession(5)
         }.apply {
             layoutParams = matchWrap().apply { bottomMargin = context.dp(Space.S) }
         }
 
-        quickButton = button(context, context.getString(R.string.overlay_quick), ButtonStyle.GHOST) {
-            onConfirmSession(true)
-        }.apply {
+        sessionChoicesRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER
             visibility = GONE
+            layoutParams = matchWrap().apply { bottomMargin = context.dp(Space.S) }
         }
 
         addView(overline)
@@ -285,7 +287,7 @@ class BarrierView(
         addView(blockGroup)
         addView(exitButton)
         addView(proceedButton)
-        addView(quickButton)
+        addView(sessionChoicesRow)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -371,24 +373,68 @@ class BarrierView(
             action.reclaimedMinutesOnAbort
         )
 
-        proceedButton.visibility = VISIBLE
-        proceedButton.isEnabled = action.readyToStartSession
-        proceedButton.alpha = if (action.readyToStartSession) 1f else 0.4f
-        proceedButton.text = if (action.readyToStartSession) {
-            context.getString(R.string.overlay_continue, action.sessionDurationMinutes)
+        val choices = if (action.availableSessionMinutes.isNotEmpty()) {
+            action.availableSessionMinutes
+        } else if (action.readyToStartSession) {
+            listOf(action.sessionDurationMinutes)
         } else {
-            context.getString(R.string.overlay_waiting, action.remainingPauseSeconds)
+            emptyList()
         }
 
-        quickButton.visibility = if (action.allowQuickMicroSession) VISIBLE else GONE
-        quickButton.isEnabled = action.allowQuickMicroSession
+        if (action.readyToStartSession && choices.size > 1) {
+            proceedButton.visibility = GONE
+            sessionChoicesRow.visibility = VISIBLE
+            bindSessionChoices(choices)
+        } else {
+            sessionChoicesRow.visibility = GONE
+            proceedButton.visibility = VISIBLE
+            proceedButton.isEnabled = action.readyToStartSession
+            proceedButton.alpha = if (action.readyToStartSession) 1f else 0.4f
+            val targetMin = choices.firstOrNull() ?: action.sessionDurationMinutes
+            proceedButton.text = if (action.readyToStartSession) {
+                context.getString(R.string.overlay_continue, targetMin)
+            } else {
+                context.getString(R.string.overlay_waiting, action.remainingPauseSeconds)
+            }
+            proceedButton.setOnClickListener {
+                onConfirmSession(targetMin)
+            }
+        }
+    }
+
+    private fun bindSessionChoices(choices: List<Int>) {
+        if (choices == lastSessionChoices && sessionChoicesRow.childCount == choices.size) {
+            return
+        }
+        lastSessionChoices = choices
+        sessionChoicesRow.removeAllViews()
+        for ((index, minutes) in choices.withIndex()) {
+            val style = if (index == 0) ButtonStyle.SECONDARY else ButtonStyle.GHOST
+            val label = if (minutes == 1 && choices.size > 1) {
+                context.getString(R.string.overlay_quick)
+            } else {
+                context.getString(R.string.overlay_session_option, minutes)
+            }
+            val choiceBtn = button(context, label, style) {
+                onConfirmSession(minutes)
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                ).apply {
+                    if (index < choices.lastIndex) {
+                        marginEnd = context.dp(Space.XS)
+                    }
+                }
+            }
+            sessionChoicesRow.addView(choiceBtn)
+        }
     }
 
     fun showHardBlock(action: InterventionAction.ShowHardBlock) {
         isMindfulPauseActive = false
         stopBreathing()
-
-        val isDailyExhausted = action.reason == BlockReason.DAILY_QUOTA_EXCEEDED
 
         overline.visibility = VISIBLE
         overline.text = context.getString(R.string.overlay_block_overline, action.displayName)
@@ -400,29 +446,42 @@ class BarrierView(
         quotaContainer.visibility = GONE
         reclaimedHint.visibility = GONE
         proceedButton.visibility = GONE
-        quickButton.visibility = GONE
+        sessionChoicesRow.visibility = GONE
 
         blockGroup.visibility = VISIBLE
-        if (isDailyExhausted) {
-            blockValue.text = context.getString(R.string.overlay_block_quota_value)
-            blockLabel.text = context.getString(R.string.overlay_block_quota_label)
-            blockMeta.text = if (action.groupName.isNotBlank()) {
-                context.getString(R.string.overlay_block_quota_meta, action.groupName)
-            } else {
-                context.getString(R.string.overlay_block_quota_meta_simple)
+        when (action.reason) {
+            BlockReason.DAILY_QUOTA_EXCEEDED -> {
+                blockValue.text = context.getString(R.string.overlay_block_quota_value)
+                blockLabel.text = context.getString(R.string.overlay_block_quota_label)
+                blockMeta.text = if (action.groupName.isNotBlank()) {
+                    context.getString(R.string.overlay_block_quota_meta, action.groupName)
+                } else {
+                    context.getString(R.string.overlay_block_quota_meta_simple)
+                }
             }
-        } else {
-            blockValue.text = formatClock(action.remainingBlockSeconds)
-            blockLabel.text = context.getString(R.string.overlay_block_cooldown_label)
-            val unlockAt = unlockClockTime(action.remainingBlockSeconds)
-            blockMeta.text = if (action.groupName.isNotBlank()) {
-                context.getString(
-                    R.string.overlay_block_cooldown_meta,
-                    action.groupName,
-                    unlockAt
-                )
-            } else {
-                context.getString(R.string.overlay_block_cooldown_meta_simple, unlockAt)
+            BlockReason.QUIET_HOURS_ACTIVE -> {
+                val unlockAt = unlockClockTime(action.remainingBlockSeconds)
+                blockValue.text = unlockAt
+                blockLabel.text = context.getString(R.string.overlay_block_quiet_label)
+                blockMeta.text = if (action.groupName.isNotBlank()) {
+                    context.getString(R.string.overlay_block_quiet_meta, action.groupName, unlockAt)
+                } else {
+                    context.getString(R.string.overlay_block_quiet_meta_simple, unlockAt)
+                }
+            }
+            BlockReason.COOLDOWN_ACTIVE -> {
+                blockValue.text = formatClock(action.remainingBlockSeconds)
+                blockLabel.text = context.getString(R.string.overlay_block_cooldown_label)
+                val unlockAt = unlockClockTime(action.remainingBlockSeconds)
+                blockMeta.text = if (action.groupName.isNotBlank()) {
+                    context.getString(
+                        R.string.overlay_block_cooldown_meta,
+                        action.groupName,
+                        unlockAt
+                    )
+                } else {
+                    context.getString(R.string.overlay_block_cooldown_meta_simple, unlockAt)
+                }
             }
         }
 

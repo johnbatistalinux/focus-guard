@@ -89,6 +89,13 @@
     <string name="group_config_quota_shared_hint">A cota é compartilhada entre os apps deste grupo.</string>
     <string name="group_config_progressive">Aumentar a pausa a cada sessão</string>
     <string name="group_config_shared">Compartilhar cota e espera entre apps</string>
+    <string name="group_config_tapering">Desmame gradual (21 dias)</string>
+    <string name="group_config_tapering_target">Meta final do desmame</string>
+    <string name="group_config_tapering_hint">Reduz a cota diária gradualmente ao longo de 21 dias.</string>
+    <string name="group_config_quiet_hours">Toque de recolher (sono e manhã)</string>
+    <string name="group_config_quiet_start">Início do bloqueio</string>
+    <string name="group_config_quiet_end">Fim do bloqueio</string>
+    <string name="group_config_quiet_hint">Bloqueia o grupo neste horário sem gastar a cota diária.</string>
     <string name="group_config_delete">Excluir este grupo</string>
     <string name="unit_seconds">%1$d s</string>
     <string name="unit_minutes">%1$d min</string>
@@ -118,6 +125,16 @@
     <string name="settings_service_title">Serviço de acessibilidade</string>
     <string name="settings_habit_title">Hábito âncora</string>
     <string name="settings_habit_body">Aparece na barreira como a alternativa ao feed.</string>
+    <string name="settings_commitment_title">Contrato de Ulisses</string>
+    <string name="settings_commitment_unlocked_title">Blindar configurações por vários dias</string>
+    <string name="settings_commitment_unlocked_body">Impede aumentar cotas ou desativar grupos em momentos de impulso.</string>
+    <string name="settings_commitment_locked_title">Blindagem ativa (%1$d d restantes)</string>
+    <string name="settings_commitment_locked_body">Seus limites e grupos estão protegidos em modo somente leitura.</string>
+    <string name="commitment_sheet_title">Contrato de Ulisses</string>
+    <string name="commitment_sheet_subtitle">Por quantos dias você quer blindar seus limites contra impulsos?</string>
+    <string name="commitment_days_option">%1$d dias</string>
+    <string name="commitment_confirm_action">Ativar blindagem de %1$d dias</string>
+    <string name="commitment_warning_body">Durante o período escolhido, as cotas, pausas e grupos não poderão ser afrouxados nem resetados.</string>
     <string name="settings_data_title">Dados</string>
     <string name="settings_reset_today">Resetar estatísticas de hoje</string>
     <string name="settings_reset_today_body">Zera o uso, a espera e as conquistas do dia.</string>
@@ -144,6 +161,7 @@
     <string name="overlay_pause_cue_ready">A pausa terminou. A escolha continua sendo sua.</string>
     <string name="overlay_quota_remaining">Restam %1$s de cota hoje</string>
     <string name="overlay_continue">Continuar por %1$d min</string>
+    <string name="overlay_session_option">%1$d min</string>
     <string name="overlay_waiting">Aguarde %1$d s</string>
     <string name="overlay_quick">Só responder (1 min)</string>
     <string name="overlay_exit_default">Sair e voltar ao que importa</string>
@@ -158,10 +176,15 @@
     <string name="overlay_block_quota_label">COTA DIÁRIA ESGOTADA</string>
     <string name="overlay_block_quota_meta">Grupo %1$s · volta à meia-noite</string>
     <string name="overlay_block_quota_meta_simple">Volta à meia-noite</string>
+    <string name="overlay_block_quiet_label">TOQUE DE RECOLHER</string>
+    <string name="overlay_block_quiet_meta">Grupo %1$s · protegido até %2$s</string>
+    <string name="overlay_block_quiet_meta_simple">Protegido até %1$s</string>
     <string name="overlay_block_return_home">Voltar ao início</string>
 
     <!-- Overlay: floating pill -->
     <string name="overlay_pill_desc">Sessão ativa, %1$s restantes. Toque para mover e mantenha pressionado para encerrar.</string>
+    <string name="overlay_pill_ending_soon">%1$s · Sair</string>
+    <string name="overlay_pill_ending_desc">Últimos %1$s. Toque para encerrar agora e reduzir a espera.</string>
 
     <!-- Onboarding -->
     <string name="onboarding_step">Passo %1$d de %2$d</string>

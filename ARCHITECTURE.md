@@ -173,12 +173,22 @@ data class FocusGroup(
     val cooldownMinutes: Int = 10,
     val dailyQuotaMinutes: Int = 30,
     val progressivePauseEnabled: Boolean = true,
-    val sharedQuota: Boolean = true
+    val sharedQuota: Boolean = true,
+    val taperingEnabled: Boolean = false,
+    val taperingTargetQuotaMinutes: Int = dailyQuotaMinutes,
+    val taperingStartEpochDay: Long = 0L,
+    val quietHoursEnabled: Boolean = false,
+    val quietHoursStartMinute: Int = FocusLimits.DEFAULT_QUIET_START_MINUTE,
+    val quietHoursEndMinute: Int = FocusLimits.DEFAULT_QUIET_END_MINUTE
 ) {
     val sessionDurationSeconds: Long get() = sessionDurationMinutes * 60L
     val cooldownSeconds: Long get() = cooldownMinutes * 60L
     val dailyQuotaSeconds: Long get() = dailyQuotaMinutes * 60L
     val icon: GroupIcon get() = GroupIcon.fromStored(iconKey)
+    fun effectiveDailyQuotaMinutes(currentEpochDay: Long): Int
+    fun effectiveDailyQuotaSeconds(currentEpochDay: Long): Long
+    fun isWithinQuietHours(minuteOfDay: Int): Boolean
+    fun remainingQuietHoursSeconds(minuteOfDay: Int): Long
 }
 
 data class TargetApp(
@@ -199,7 +209,8 @@ data class FocusConfig(
     val selectedAnchorHabit: String = DEFAULT_ANCHOR_HABIT,
     val groups: List<FocusGroup> = emptyList(),
     val customApps: List<TargetApp> = emptyList(),
-    val sharedQuotaEnabled: Boolean = true
+    val sharedQuotaEnabled: Boolean = true,
+    val commitmentLockUntilEpochDay: Long = 0L
 )
 
 /** Read-only dashboard snapshot of an active or background-paused session. */
@@ -237,7 +248,8 @@ sealed interface InterventionAction {
         val reclaimedMinutesOnAbort: Int = 5,
         val allowQuickMicroSession: Boolean = false,
         val groupName: String = "",
-        val sessionDurationMinutes: Int = 15
+        val sessionDurationMinutes: Int = 15,
+        val availableSessionMinutes: List<Int> = emptyList()
     ) : InterventionAction
 
     data class ShowFloatingTimer(
@@ -252,7 +264,8 @@ sealed interface InterventionAction {
 
 enum class BlockReason {
     COOLDOWN_ACTIVE,
-    DAILY_QUOTA_EXCEEDED
+    DAILY_QUOTA_EXCEEDED,
+    QUIET_HOURS_ACTIVE
 }
 ```
 

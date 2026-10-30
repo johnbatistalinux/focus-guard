@@ -99,5 +99,11 @@ Android smartphone user with 4 GB of RAM who wants to break the automatic *deep 
    - **Testable Barrier Preview:** Ajustes can render the real overlay in preview mode without touching policy state.
    - **Accessibility & Ergonomics (WCAG AA):** Minimum 48dp touch targets, font scaling resilience, edge-to-edge window insets, content descriptions on icon-only controls, and centralized Portuguese copy in `strings.xml`.
    - **Unified Domain Limits (`FocusLimits`):** Parameter bounds, session-to-quota coercion, quota level thresholds, and preset matching reside strictly in the pure Kotlin domain layer.
+10. **Evidence-Based Behavioral Anti-Doomscrolling Suite (v2.1):**
+   - **Soft-Landing 30s Alert & Single-Tap Early Exit (`FloatingPillView`):** When a session enters its last 30 seconds, the floating pill emits a subtle haptic pulse, displays an inline exit cue (`"· Sair"`), and allows a single tap to terminate the session immediately and claim the voluntary early-exit cooldown bonus.
+   - **Variable On-Demand Session Sizing (`BarrierView`):** Replaces rigid single-duration session unlocks with explicit duration budget buttons (`1 min`, `3 min`, `Max`) and scales post-session cooldown proportionally to the chosen session budget.
+   - **21-Day Gradual Quota Tapering (`FocusGroup`):** Optional lazy `epochDay` linear interpolation from the initial `dailyQuotaMinutes` down to `taperingTargetQuotaMinutes` over 21 days with zero background jobs.
+   - **Circadian Dopamine Shield / Quiet Hours (`FocusGroup`):** Configurable sleep and early-morning window (default `22:30–07:30`) evaluated purely via `TimeProvider.currentMinuteOfDay()` to trigger `BlockReason.QUIET_HOURS_ACTIVE` on app launch or active session tick.
+   - **Ulysses Pre-Commitment Lock Horizon (`FocusConfig`):** Optional multi-day settings lock (`3`, `7`, `14`, or `30` days) configured from **Ajustes** (`CommitmentLockSheet`) that keeps configuration mutations read-only until `commitmentLockUntilEpochDay`.
 
 

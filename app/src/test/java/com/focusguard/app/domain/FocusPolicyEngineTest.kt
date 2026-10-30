@@ -939,15 +939,135 @@ class FocusPolicyEngineTest {
         assertEquals(1790L, midAction.remainingDailyQuotaSeconds)
     }
 
+    @Test
+    fun `escolher sessao intermediaria de 3 min aplica duracao escolhida e cooldown proporcional`() {
+        val group = FocusGroup(
+            id = FocusGroup.DEFAULT_GROUP_SOCIAL_ID,
+            name = "Redes Sociais",
+            appIds = setOf("instagram"),
+            mindfulPauseSeconds = 5,
+            sessionDurationMinutes = 10,
+            cooldownMinutes = 10,
+            dailyQuotaMinutes = 30
+        )
+        fakeStore.saveConfig(FocusConfig(groups = listOf(group), enabledAppIds = setOf("instagram")))
+
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(5) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        val pauseReady = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowMindfulPause
+        assertEquals(listOf(1, 3, 10), pauseReady.availableSessionMinutes)
+
+        val started = engine.onConfirmStartSession(requestedDurationMinutes = 3) as InterventionAction.ShowFloatingTimer
+        assertEquals(180L, started.remainingSessionSeconds)
+        assertEquals(180L, started.totalSessionSeconds)
+
+        // Consome os 180s da sessão de 3 min
+        repeat(179) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        fakeTime.advanceSeconds(1)
+        val kick = engine.onSecondTick()
+        assertEquals(InterventionAction.KickToHome("instagram", BlockReason.COOLDOWN_ACTIVE), kick)
+
+        // Cooldown proporcional: 3/10 de 600s = 180s (3 min)
+        val block = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowHardBlock
+        assertEquals(BlockReason.COOLDOWN_ACTIVE, block.reason)
+        assertEquals(180L, block.remainingBlockSeconds)
+    }
+
+    @Test
+    fun `toque de recolher circadiano bloqueia abertura e ejeta sessao ativa quando horario inicia`() {
+        val group = FocusGroup(
+            id = FocusGroup.DEFAULT_GROUP_SOCIAL_ID,
+            name = "Redes Sociais",
+            appIds = setOf("instagram"),
+            mindfulPauseSeconds = 5,
+            sessionDurationMinutes = 5,
+            cooldownMinutes = 10,
+            dailyQuotaMinutes = 30,
+            quietHoursEnabled = true,
+            quietHoursStartMinute = 22 * 60 + 30, // 22:30
+            quietHoursEndMinute = 7 * 60 + 30     // 07:30
+        )
+        fakeStore.saveConfig(FocusConfig(groups = listOf(group), enabledAppIds = setOf("instagram")))
+
+        // 22:20 -> fora do toque de recolher, permite iniciar sessão
+        fakeTime.setMinuteOfDay(22 * 60 + 20)
+        engine.onWindowPackageChanged("com.instagram.android")
+        repeat(5) {
+            fakeTime.advanceSeconds(1)
+            engine.onSecondTick()
+        }
+        engine.onConfirmStartSession(requestedDurationMinutes = 5)
+
+        // Relógio vira 22:30 durante a sessão ativa -> ejeta imediatamente com QUIET_HOURS_ACTIVE
+        fakeTime.setMinuteOfDay(22 * 60 + 30)
+        fakeTime.advanceSeconds(1)
+        val tickAction = engine.onSecondTick()
+        assertEquals(InterventionAction.KickToHome("instagram", BlockReason.QUIET_HOURS_ACTIVE), tickAction)
+
+        // Tentar reabrir às 23:00 exibe ShowHardBlock de QUIET_HOURS_ACTIVE e trava configurações
+        fakeTime.setMinuteOfDay(23 * 60)
+        val hardBlock = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowHardBlock
+        assertEquals(BlockReason.QUIET_HOURS_ACTIVE, hardBlock.reason)
+        assertTrue(engine.getSettingsLockStatus().isLocked)
+    }
+
+    @Test
+    fun `desmame gradual de 21 dias reduz cota diaria efetiva sem processos em background`() {
+        val startDay = fakeTime.currentEpochDay()
+        val group = FocusGroup(
+            id = FocusGroup.DEFAULT_GROUP_SOCIAL_ID,
+            name = "Redes Sociais",
+            appIds = setOf("instagram"),
+            mindfulPauseSeconds = 5,
+            sessionDurationMinutes = 5,
+            cooldownMinutes = 10,
+            dailyQuotaMinutes = 46,
+            taperingEnabled = true,
+            taperingTargetQuotaMinutes = 25,
+            taperingStartEpochDay = startDay
+        )
+        fakeStore.saveConfig(FocusConfig(groups = listOf(group), enabledAppIds = setOf("instagram")))
+
+        // Avança 21 dias: cota efetiva cai de 46 min para 25 min (1500s)
+        fakeTime.advanceDays(21)
+        val pause = engine.onWindowPackageChanged("com.instagram.android") as InterventionAction.ShowMindfulPause
+        assertEquals(25L * 60L, pause.remainingDailyQuotaSeconds)
+    }
+
+    @Test
+    fun `contrato de ulisses trava configuracoes ate o epochDay configurado`() {
+        val today = fakeTime.currentEpochDay()
+        assertFalse(engine.getSettingsLockStatus().isLocked)
+
+        fakeStore.saveConfig(
+            fakeStore.getConfig().copy(commitmentLockUntilEpochDay = today + 7L)
+        )
+        val lockedStatus = engine.getSettingsLockStatus()
+        assertTrue(lockedStatus.isLocked)
+        assertTrue(lockedStatus.reasonMessage!!.contains("7 dia(s)"))
+
+        fakeTime.advanceDays(7)
+        assertFalse(engine.getSettingsLockStatus().isLocked)
+    }
+
     private class FakeTimeProvider(
         initialRealtimeMs: Long,
-        initialEpochDay: Long
+        initialEpochDay: Long,
+        initialMinuteOfDay: Int = 720
     ) : TimeProvider {
         private var realtimeMs: Long = initialRealtimeMs
         private var epochDay: Long = initialEpochDay
+        private var minuteOfDay: Int = initialMinuteOfDay
 
         override fun elapsedRealtimeMs(): Long = realtimeMs
         override fun currentEpochDay(): Long = epochDay
+        override fun currentMinuteOfDay(): Int = minuteOfDay
 
         fun advanceSeconds(seconds: Long) {
             realtimeMs += seconds * 1000L
@@ -955,6 +1075,10 @@ class FocusPolicyEngineTest {
 
         fun advanceDays(days: Long) {
             epochDay += days
+        }
+
+        fun setMinuteOfDay(minute: Int) {
+            minuteOfDay = minute
         }
     }
 

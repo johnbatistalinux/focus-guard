@@ -47,6 +47,7 @@ class FocusPreferencesStore(
         val anchorHabit = FocusLimits.sanitizeAnchorHabit(rawAnchorHabit)
 
         val sharedQuotaDefault = backend.getBoolean(KEY_SHARED_QUOTA_DEFAULT, true)
+        val commitmentLockUntilEpochDay = backend.getLong(KEY_COMMITMENT_LOCK_UNTIL_EPOCH_DAY, 0L).coerceAtLeast(0L)
         val rawGroups = backend.getString(KEY_FOCUS_GROUPS_V1, "")
         val rawCustomApps = backend.getString(KEY_CUSTOM_APPS_V1, "")
 
@@ -99,7 +100,8 @@ class FocusPreferencesStore(
             selectedAnchorHabit = anchorHabit,
             groups = effectiveGroups,
             customApps = customApps,
-            sharedQuotaEnabled = sharedQuotaDefault
+            sharedQuotaEnabled = sharedQuotaDefault,
+            commitmentLockUntilEpochDay = commitmentLockUntilEpochDay
         )
         cachedConfig = loaded
         return loaded
@@ -120,7 +122,8 @@ class FocusPreferencesStore(
         val immutableConfig = config.copy(
             enabledAppIds = activeGroupAppIds,
             groups = effectiveGroups,
-            customApps = config.customApps.toList()
+            customApps = config.customApps.toList(),
+            commitmentLockUntilEpochDay = config.commitmentLockUntilEpochDay.coerceAtLeast(0L)
         )
         cachedConfig = immutableConfig
 
@@ -135,6 +138,7 @@ class FocusPreferencesStore(
             putString(KEY_FOCUS_GROUPS_V1, serializeGroups(effectiveGroups))
             putString(KEY_CUSTOM_APPS_V1, serializeCustomApps(immutableConfig.customApps))
             putBoolean(KEY_SHARED_QUOTA_DEFAULT, immutableConfig.sharedQuotaEnabled)
+            putLong(KEY_COMMITMENT_LOCK_UNTIL_EPOCH_DAY, immutableConfig.commitmentLockUntilEpochDay)
         }
     }
 
@@ -424,7 +428,7 @@ class FocusPreferencesStore(
             val cleanName = sanitizeField(group.name)
             val cleanIcon = sanitizeField(group.iconKey)
             val appIdsStr = group.appIds.joinToString(",") { sanitizeField(it) }
-            "$cleanId|$cleanName|$cleanIcon|${group.enabled}|$appIdsStr|${group.mindfulPauseSeconds}|${group.sessionDurationMinutes}|${group.cooldownMinutes}|${group.dailyQuotaMinutes}|${group.progressivePauseEnabled}|${group.sharedQuota}"
+            "$cleanId|$cleanName|$cleanIcon|${group.enabled}|$appIdsStr|${group.mindfulPauseSeconds}|${group.sessionDurationMinutes}|${group.cooldownMinutes}|${group.dailyQuotaMinutes}|${group.progressivePauseEnabled}|${group.sharedQuota}|${group.taperingEnabled}|${group.taperingTargetQuotaMinutes}|${group.taperingStartEpochDay}|${group.quietHoursEnabled}|${group.quietHoursStartMinute}|${group.quietHoursEndMinute}"
         }
     }
 
@@ -449,6 +453,14 @@ class FocusPreferencesStore(
                 val dailyQuotaMin = parts[8].toIntOrNull()?.coerceIn(FocusLimits.DAILY_QUOTA_MINUTES) ?: DEFAULT_DAILY_QUOTA_MIN
                 val progressive = parts[9].toBooleanStrictOrNull() ?: true
                 val shared = parts[10].toBooleanStrictOrNull() ?: true
+                val taperingEnabled = parts.getOrNull(11)?.toBooleanStrictOrNull() ?: false
+                val taperingTargetMin = parts.getOrNull(12)?.toIntOrNull()?.coerceIn(FocusLimits.DAILY_QUOTA_MINUTES) ?: dailyQuotaMin
+                val taperingStartDay = parts.getOrNull(13)?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+                val quietEnabled = parts.getOrNull(14)?.toBooleanStrictOrNull() ?: false
+                val quietStartMin = parts.getOrNull(15)?.toIntOrNull()?.coerceIn(FocusLimits.MINUTE_OF_DAY_RANGE)
+                    ?: FocusLimits.DEFAULT_QUIET_START_MINUTE
+                val quietEndMin = parts.getOrNull(16)?.toIntOrNull()?.coerceIn(FocusLimits.MINUTE_OF_DAY_RANGE)
+                    ?: FocusLimits.DEFAULT_QUIET_END_MINUTE
 
                 result.add(
                     FocusGroup(
@@ -462,7 +474,13 @@ class FocusPreferencesStore(
                         cooldownMinutes = cooldownMin,
                         dailyQuotaMinutes = dailyQuotaMin,
                         progressivePauseEnabled = progressive,
-                        sharedQuota = shared
+                        sharedQuota = shared,
+                        taperingEnabled = taperingEnabled,
+                        taperingTargetQuotaMinutes = taperingTargetMin,
+                        taperingStartEpochDay = taperingStartDay,
+                        quietHoursEnabled = quietEnabled,
+                        quietHoursStartMinute = quietStartMin,
+                        quietHoursEndMinute = quietEndMin
                     )
                 )
             }
@@ -519,6 +537,7 @@ class FocusPreferencesStore(
         private const val KEY_FOCUS_GROUPS_V1 = "cfg_focus_groups_v1"
         private const val KEY_CUSTOM_APPS_V1 = "cfg_custom_apps_v1"
         private const val KEY_SHARED_QUOTA_DEFAULT = "cfg_shared_quota_default"
+        private const val KEY_COMMITMENT_LOCK_UNTIL_EPOCH_DAY = "cfg_commitment_lock_until_day"
         private const val KEY_SESSION_GUARDS_V1 = "session_guards_v1"
         private const val KEY_ONBOARDING_COMPLETED_V2 = "onboarding_completed_v2"
 

@@ -3,7 +3,9 @@ package com.focusguard.app.ui
 import android.content.Context
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.TextView
 import com.focusguard.app.R
+import com.focusguard.app.data.SystemTimeProvider
 import com.focusguard.app.ui.design.Palette
 import com.focusguard.app.ui.design.Radius
 import com.focusguard.app.ui.design.Space
@@ -24,6 +26,7 @@ class SettingsScreen(
     private val onOpenAccessibilitySettings: () -> Unit,
     private val onTestBarrier: () -> Unit,
     private val onChangeAnchorHabit: () -> Unit,
+    private val onOpenCommitmentLock: () -> Unit = {},
     private val onResetToday: () -> Unit,
     private val onResetAll: () -> Unit,
     private val onLockedAttempt: () -> Unit
@@ -32,6 +35,9 @@ class SettingsScreen(
     private val content: LinearLayout
     private val serviceCard: ServiceStatusCard
     private val anchorCard: AnchorHabitCardView
+    private val commitmentRow: LinearLayout
+    private val commitmentTitleView: TextView
+    private val commitmentBodyView: TextView
     private val resetTodayRow: LinearLayout
     private val resetAllRow: LinearLayout
     private var isLockedNow: Boolean = false
@@ -87,6 +93,17 @@ class SettingsScreen(
                 setPadding(0, 0, 0, context.dp(Space.S))
             }
         )
+
+        content.addView(sectionHeader(context, context.getString(R.string.settings_commitment_title)))
+        commitmentRow = actionRow(
+            context.getString(R.string.settings_commitment_unlocked_title),
+            context.getString(R.string.settings_commitment_unlocked_body)
+        ) {
+            if (isLockedNow) onLockedAttempt() else onOpenCommitmentLock()
+        }
+        commitmentTitleView = commitmentRow.getChildAt(0) as TextView
+        commitmentBodyView = commitmentRow.getChildAt(1) as TextView
+        content.addView(commitmentRow)
 
         content.addView(sectionHeader(context, context.getString(R.string.settings_data_title)))
         resetTodayRow = actionRow(
@@ -155,6 +172,21 @@ class SettingsScreen(
         serviceCard.bind(state.serviceActive)
         anchorCard.setAnchorHabit(state.config.selectedAnchorHabit)
         anchorCard.alpha = if (isLockedNow) 0.5f else 1f
+        val today = SystemTimeProvider.currentEpochDay()
+        val remainingCommitmentDays = (state.config.commitmentLockUntilEpochDay - today).coerceAtLeast(0L)
+        if (remainingCommitmentDays > 0L) {
+            commitmentTitleView.text = context.getString(
+                R.string.settings_commitment_locked_title,
+                remainingCommitmentDays.toInt()
+            )
+            commitmentTitleView.setTextColor(Palette.SAGE)
+            commitmentBodyView.text = context.getString(R.string.settings_commitment_locked_body)
+        } else {
+            commitmentTitleView.text = context.getString(R.string.settings_commitment_unlocked_title)
+            commitmentTitleView.setTextColor(Palette.TEXT_PRIMARY)
+            commitmentBodyView.text = context.getString(R.string.settings_commitment_unlocked_body)
+        }
+        commitmentRow.alpha = if (isLockedNow && remainingCommitmentDays <= 0L) 0.5f else 1f
         resetTodayRow.alpha = if (isLockedNow) 0.5f else 1f
         resetAllRow.alpha = if (isLockedNow) 0.5f else 1f
     }
